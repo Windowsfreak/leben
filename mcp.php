@@ -103,6 +103,9 @@ if ($action === 'sse') {
 // 2. MCP Tools Definition Registry
 // -------------------------------------------------------------------------
 function get_mcp_tools() {
+    $langs = array_keys(get_supported_languages());
+    $target_langs = array_merge($langs, ['all']);
+
     return [
         [
             'name' => 'search_tiles',
@@ -111,7 +114,7 @@ function get_mcp_tools() {
                 'type' => 'object',
                 'properties' => [
                     'q' => ['type' => 'string', 'description' => 'Natural language query or keywords (e.g., "IT consulting", "Krypto", "Parkour")'],
-                    'lang' => ['type' => 'string', 'enum' => ['de', 'en'], 'description' => 'Preferred language (default "de")'],
+                    'lang' => ['type' => 'string', 'enum' => $langs, 'description' => 'Preferred language (default "de")'],
                     'limit' => ['type' => 'integer', 'description' => 'Maximum tiles to return (default 20)'],
                     'offset' => ['type' => 'integer', 'description' => 'Pagination offset (default 0)']
                 ]
@@ -124,7 +127,7 @@ function get_mcp_tools() {
                 'type' => 'object',
                 'properties' => [
                     'name' => ['type' => 'string', 'description' => 'Name of the source tile (e.g. "hero", "finance", "it")'],
-                    'lang' => ['type' => 'string', 'enum' => ['de', 'en'], 'description' => 'Preferred language (default "de")'],
+                    'lang' => ['type' => 'string', 'enum' => $langs, 'description' => 'Preferred language (default "de")'],
                     'limit' => ['type' => 'integer', 'description' => 'Maximum tiles to return (default 5)'],
                     'offset' => ['type' => 'integer', 'description' => 'Pagination offset (default 0)']
                 ],
@@ -138,7 +141,7 @@ function get_mcp_tools() {
                 'type' => 'object',
                 'properties' => [
                     'name' => ['type' => 'string', 'description' => 'Name of the card (e.g. "hero", "finance", "it", "contact")'],
-                    'lang' => ['type' => 'string', 'enum' => ['de', 'en'], 'description' => 'Language code (default "de")'],
+                    'lang' => ['type' => 'string', 'enum' => $langs, 'description' => 'Language code (default "de")'],
                     'include_content' => ['type' => 'boolean', 'description' => 'Whether to include the full HTML article content from file (default true)']
                 ],
                 'required' => ['name']
@@ -152,7 +155,7 @@ function get_mcp_tools() {
                 'properties' => [
                     'name' => ['type' => 'string', 'description' => 'Unique slug identifier (e.g., "ai-consulting")'],
                     'title' => ['type' => 'string', 'description' => 'Display title of the tile'],
-                    'language' => ['type' => 'string', 'enum' => ['de', 'en'], 'description' => 'Language code (default "de")'],
+                    'language' => ['type' => 'string', 'enum' => $langs, 'description' => 'Language code (default "de")'],
                     'summary' => ['type' => 'string', 'description' => 'Structured summary for vector search indexing'],
                     'html_teaser' => ['type' => 'string', 'description' => 'Grid tile preview HTML snippet'],
                     'tags' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Category tags'],
@@ -169,14 +172,14 @@ function get_mcp_tools() {
         ],
         [
             'name' => 'translate_tile',
-            'description' => 'Translate an existing tile metadata and HTML content into the target language ("en" or "de") using AI translation.',
+            'description' => 'Translate an existing tile metadata and HTML content into a target language or all missing languages using AI translation.',
             'inputSchema' => [
                 'type' => 'object',
                 'properties' => [
                     'name' => ['type' => 'string', 'description' => 'Name of the tile to translate'],
-                    'target_lang' => ['type' => 'string', 'enum' => ['de', 'en'], 'description' => 'Target language to translate into']
+                    'target_lang' => ['type' => 'string', 'enum' => $target_langs, 'description' => 'Target language code or "all" for all missing languages']
                 ],
-                'required' => ['name', 'target_lang']
+                'required' => ['name']
             ]
         ],
         [
@@ -449,141 +452,12 @@ function execute_mcp_tool($tool_name, $args) {
 
         case 'translate_tile':
             $name = trim($args['name'] ?? '');
-            $target_lang = strtolower(trim($args['target_lang'] ?? 'en'));
-            if (empty($name) || empty($target_lang)) {
-                throw new Exception("Name and target_lang are required.");
+            $target_lang = strtolower(trim($args['target_lang'] ?? 'all'));
+            if (empty($name)) {
+                throw new Exception("Name is required.");
             }
 
-            $source_lang = ($target_lang === 'en') ? 'de' : 'en';
-            $stmt = $db->prepare("SELECT * FROM tiles WHERE name = :name AND language = :source_lang");
-            $stmt->execute([':name' => $name, ':source_lang' => $source_lang]);
-            $source_tile = $stmt->fetch();
-            if (!$source_tile) {
-                throw new Exception("Source tile '{$name}' in language '{$source_lang}' not found.");
-            }
-
-            $contents_dir = __DIR__ . '/content/';
-            $source_content = '';
-            if (!empty($source_tile['content_file'])) {
-                $fpath = $contents_dir . $source_tile['content_file'];
-                if (file_exists($fpath)) {
-                    $source_content = file_get_contents($fpath);
-                }
-            }
-            if (empty($source_content)) {
-                $source_content = $source_tile['html_teaser'];
-            }
-
-            $src_tags = $source_tile['tags'] ?? '';
-            $raw_tags = trim((string)$src_tags, '{}');
-            $tags_arr = array_filter(array_map('trim', explode(',', $raw_tags)));
-
-            $lang_full_name = ($target_lang === 'en') ? 'English' : 'German';
-            $meta_prompt = "You are an expert bilingual content translator. Translate the following tile metadata from " . strtoupper($source_lang) . " into {$lang_full_name}.
-Respond ONLY with a valid JSON object matching this structure (no markdown, no backticks):
-{
-  \"title\": \"Translated Title\",
-  \"summary\": \"Translated summary...\",
-  \"tags\": [\"tag1\", \"tag2\"]
-}";
-            $meta_user = "Source Title: {$source_tile['title']}\nSource Tags: " . implode(', ', $tags_arr) . "\nSource Summary: {$source_tile['summary']}";
-
-            $meta_response = trim(call_llm($meta_prompt, $meta_user));
-            if (strpos($meta_response, '```') !== false) {
-                $meta_response = trim(preg_replace('/^```(?:json)?|```$/m', '', $meta_response));
-            }
-            $translated_meta = json_decode($meta_response, true);
-            if (json_last_error() !== JSON_ERROR_NONE) {
-                throw new Exception("LLM metadata translation failed: " . $meta_response);
-            }
-
-            $html_prompt = "You are an expert HTML translator. Translate all human-readable text in the provided HTML snippet into {$lang_full_name}.
-Keep all HTML tags, structure, classes, IDs, icons (<i class=\"...\"></i>), and attributes intact.
-Respond ONLY with the translated HTML string.";
-
-            $translated_html = trim(call_llm($html_prompt, $source_content));
-            if (strpos($translated_html, '```') !== false) {
-                $translated_html = trim(preg_replace('/^```(?:html|xml|json)?|```$/m', '', $translated_html));
-            }
-
-            $target_content_file = null;
-            if (!empty($source_tile['content_file'])) {
-                $base_file = pathinfo($source_tile['content_file'], PATHINFO_FILENAME);
-                $base_clean = preg_replace('/[_\-](de|en)$/i', '', $base_file);
-                $target_content_file = "{$base_clean}_{$target_lang}.html";
-                file_put_contents($contents_dir . $target_content_file, $translated_html);
-            }
-
-            $new_tags = $translated_meta['tags'] ?? $tags_arr;
-            $new_summary = $translated_meta['summary'] ?? $source_tile['summary'];
-            $pg_tags = '{' . implode(',', array_map('trim', $new_tags)) . '}';
-
-            $doc_text = format_tile_document_text($name, $target_lang, $new_tags, $new_summary);
-            $vector_str = null;
-            try {
-                $embedding = get_embedding($doc_text, 'document');
-                $vector_str = array_to_postgres_vector($embedding);
-            } catch (Exception $e) {
-                $vector_str = array_to_postgres_vector(array_fill(0, 768, 0.0));
-            }
-
-            $check_stmt = $db->prepare("SELECT id FROM tiles WHERE name = :name AND language = :target_lang");
-            $check_stmt->execute([':name' => $name, ':target_lang' => $target_lang]);
-            $existing_target = $check_stmt->fetch();
-
-            if ($existing_target) {
-                $sql = "
-                    UPDATE tiles 
-                    SET tags = :tags, title = :title, html_teaser = :html_teaser,
-                        summary = :summary, link = :link, type = :type,
-                        content_file = :content_file, visible = :visible, accent_color = :accent_color,
-                        background = :background, embedding = :embedding::vector, sort_order = :sort_order,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = :id
-                ";
-                $stmt = $db->prepare($sql);
-                $stmt->bindValue(':id', $existing_target['id'], PDO::PARAM_INT);
-            } else {
-                $sql = "
-                    INSERT INTO tiles (
-                        name, language, tags, title, html_teaser,
-                        summary, link, type, content_file,
-                        visible, accent_color, background, embedding, sort_order, created_at, updated_at
-                    ) VALUES (
-                        :name, :language, :tags, :title, :html_teaser,
-                        :summary, :link, :type, :content_file,
-                        :visible, :accent_color, :background, :embedding::vector, :sort_order,
-                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-                    )
-                ";
-                $stmt = $db->prepare($sql);
-                $stmt->bindValue(':language', $target_lang, PDO::PARAM_STR);
-            }
-
-            $stmt->bindValue(':name', $name, PDO::PARAM_STR);
-            $stmt->bindValue(':tags', $pg_tags, PDO::PARAM_STR);
-            $stmt->bindValue(':title', $translated_meta['title'], PDO::PARAM_STR);
-            $stmt->bindValue(':html_teaser', $translated_html, PDO::PARAM_STR);
-            $stmt->bindValue(':summary', $new_summary, PDO::PARAM_STR);
-            $stmt->bindValue(':link', $source_tile['link'], PDO::PARAM_STR);
-            $stmt->bindValue(':type', $source_tile['type'], PDO::PARAM_STR);
-            $stmt->bindValue(':content_file', $target_content_file, PDO::PARAM_STR);
-            $stmt->bindValue(':visible', (bool)$source_tile['visible'], PDO::PARAM_BOOL);
-            $stmt->bindValue(':accent_color', $source_tile['accent_color'], PDO::PARAM_STR);
-            $stmt->bindValue(':background', $source_tile['background'], PDO::PARAM_STR);
-            $stmt->bindValue(':embedding', $vector_str, PDO::PARAM_STR);
-            $stmt->bindValue(':sort_order', (int)$source_tile['sort_order'], PDO::PARAM_INT);
-            $stmt->execute();
-
-            return [
-                'name' => $name,
-                'source_language' => $source_lang,
-                'target_language' => $target_lang,
-                'title' => $translated_meta['title'],
-                'summary' => $new_summary,
-                'tags' => $new_tags,
-                'content_file' => $target_content_file
-            ];
+            return execute_auto_translate($name, $target_lang);
 
         case 'list_translation_status':
             $tile_name = $args['name'] ?? null;

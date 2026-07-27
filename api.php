@@ -4,8 +4,8 @@ require_once __DIR__ . '/lib.php';
 
 $action = $_GET['action'] ?? '';
 $lang = $_GET['lang'] ?? 'de';
-// Normalize lang
-$lang = in_array(strtolower($lang), ['de', 'en']) ? strtolower($lang) : 'de';
+$supported = array_keys(get_supported_languages());
+$lang = in_array(strtolower($lang), $supported) ? strtolower($lang) : 'de';
 
 try {
     switch ($action) {

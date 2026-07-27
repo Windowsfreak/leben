@@ -948,40 +948,58 @@ function updateTranslationBadgesInGrid() {
 
 function triggerAutoTranslate() {
     const tileName = document.getElementById('editName').value.trim();
-    const currentLang = document.getElementById('editLanguage').value.trim().toLowerCase();
-    const targetLang = (currentLang === 'de') ? 'en' : 'de';
 
     if (!tileName) {
         alert("Bitte gib erst einen Kachelnamen an.");
         return;
     }
 
-    if (!confirm(`Möchtest Du die Kachel "${tileName}" per KI automatisch in die Sprache '${targetLang.toUpperCase()}' übersetzen und speichern?\n\nHinweis: Das Übersetzungssystem gewährt dem KI-Modell bis zu 300s Ausführungszeit.`)) {
-        return;
-    }
-
     const btn = document.getElementById('autoTranslateBtn');
     const origHtml = btn.innerHTML;
     btn.disabled = true;
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> KI Übersetzt...';
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Prüfe Status...';
 
-    const formData = new FormData();
-    formData.append('name', tileName);
-    formData.append('target_lang', targetLang);
-
-    fetch('admin.php?action=auto_translate', {
-        method: 'POST',
-        body: formData
-    })
+    fetch(`admin.php?action=translation_status&name=${encodeURIComponent(tileName)}`)
         .then(res => res.json())
         .then(res => {
-            if (res.status === 'success') {
-                alert(res.message);
-                document.getElementById('editorDialog').close();
-                resetAndLoad();
-            } else {
-                alert(`Fehler bei der KI-Übersetzung: ${res.message}`);
+            let missingLangs = [];
+            if (res.status === 'success' && res.data) {
+                missingLangs = res.data.missing_languages || [];
             }
+
+            let confirmMsg = '';
+            if (missingLangs.length > 0) {
+                confirmMsg = `Möchtest Du die Kachel "${tileName}" per KI in alle ${missingLangs.length} fehlenden Sprachen (${missingLangs.map(l => l.toUpperCase()).join(', ')}) übersetzen und speichern?\n\nHinweis: Das Übersetzungssystem gewährt dem KI-Modell ausreichend Ausführungszeit.`;
+            } else {
+                confirmMsg = `Alle unterstützten Sprachen existieren bereits für "${tileName}". Möchtest Du trotzdem eine Neuübersetzung für alle Zielsprachen durchführen?`;
+            }
+
+            if (!confirm(confirmMsg)) {
+                btn.disabled = false;
+                btn.innerHTML = origHtml;
+                return;
+            }
+
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> KI Übersetzt...';
+
+            const formData = new FormData();
+            formData.append('name', tileName);
+            formData.append('target_lang', 'all');
+
+            return fetch('admin.php?action=auto_translate', {
+                method: 'POST',
+                body: formData
+            })
+                .then(res => res.json())
+                .then(res => {
+                    if (res.status === 'success') {
+                        alert(res.message);
+                        document.getElementById('editorDialog').close();
+                        resetAndLoad();
+                    } else {
+                        alert(`Fehler bei der KI-Übersetzung: ${res.message}`);
+                    }
+                });
         })
         .catch(err => {
             alert("Fehler bei der Kommunikation mit dem Server.");

@@ -357,6 +357,8 @@ function parseURLForTile() {
     let tileName = '';
     let tileLang = null;
 
+    const supportedCodes = appConfig && appConfig.supported_languages ? Object.keys(appConfig.supported_languages) : ['de', 'en'];
+
     // 1. Check Hash first (e.g. #support, #support:en, #contact:en, #en/contact)
     const rawHash = window.location.hash ? window.location.hash.substring(1) : '';
     if (rawHash) {
@@ -372,7 +374,7 @@ function parseURLForTile() {
             tileLang = parts[1].trim().toLowerCase();
         } else if (hashStr.includes('/')) {
             const parts = hashStr.split('/').filter(Boolean);
-            if (parts.length >= 2 && ['de', 'en'].includes(parts[0].toLowerCase())) {
+            if (parts.length >= 2 && supportedCodes.includes(parts[0].toLowerCase())) {
                 tileLang = parts[0].toLowerCase();
                 tileName = parts[1];
             } else if (parts.length > 0) {
@@ -397,12 +399,12 @@ function parseURLForTile() {
         const cleanSegments = pathSegments.filter(s => !ignoredPaths.includes(s.toLowerCase()));
 
         if (cleanSegments.length > 0) {
-            if (cleanSegments.length >= 2 && ['de', 'en'].includes(cleanSegments[0].toLowerCase())) {
+            if (cleanSegments.length >= 2 && supportedCodes.includes(cleanSegments[0].toLowerCase())) {
                 tileLang = cleanSegments[0].toLowerCase();
                 tileName = cleanSegments[1];
             } else {
                 const candidate = cleanSegments[cleanSegments.length - 1];
-                if (!['de', 'en'].includes(candidate.toLowerCase())) {
+                if (!supportedCodes.includes(candidate.toLowerCase())) {
                     tileName = candidate;
                 }
             }
