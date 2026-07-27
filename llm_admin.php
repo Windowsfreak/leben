@@ -66,7 +66,7 @@ try {
 
             if (!empty($content_file) && !empty($html_teaser)) {
                 if (preg_match('/^[a-zA-Z0-9_\-\.]+\.html$/', $content_file)) {
-                    $contents_dir = __DIR__ . '/contents/';
+                    $contents_dir = __DIR__ . '/content/';
                     file_put_contents($contents_dir . $content_file, $html_teaser);
                 }
             }
@@ -149,7 +149,7 @@ try {
             }
 
             // Read source content file if defined
-            $contents_dir = __DIR__ . '/contents/';
+            $contents_dir = __DIR__ . '/content/';
             $source_content = '';
             if (!empty($source_tile['content_file'])) {
                 $fpath = $contents_dir . $source_tile['content_file'];

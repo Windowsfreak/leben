@@ -3,7 +3,7 @@ router.php
 config.json
 config.php
 db_setup.php
-contents/
+content/
 tileimg/
 *.jpg
 *.JPEG

@@ -1076,7 +1076,7 @@ function openLightboxEditor(tile) {
     document.getElementById('lightboxEditFileName').value = tile.content_file || '';
     
     document.getElementById('lightboxEditorTitle').textContent = tile.content_file
-        ? `Dokument bearbeiten: contents/${tile.content_file}`
+        ? `Dokument bearbeiten: content/${tile.content_file}`
         : `HTML-Inhalt bearbeiten: ${tile.title}`;
         
     const container = document.getElementById('monacoLightboxEditor');

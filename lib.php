@@ -294,7 +294,7 @@ function get_translation_status($tile_name = null) {
     }
 
     $results = [];
-    $contents_dir = __DIR__ . '/contents/';
+    $contents_dir = __DIR__ . '/content/';
 
     foreach ($grouped as $name => $siblings) {
         // Oldest created_at sibling is the source of truth

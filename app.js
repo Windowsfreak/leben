@@ -514,7 +514,7 @@ function openLightbox(tile, updateHistory = true) {
 
     // If it points to an HTML content file
     if (tile.content_file) {
-        fetch(`contents/${tile.content_file}`)
+        fetch(`content/${tile.content_file}`)
             .then(res => {
                 if (!res.ok) throw new Error("File not found");
                 return res.text();

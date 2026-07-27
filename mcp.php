@@ -358,7 +358,7 @@ function execute_mcp_tool($tool_name, $args) {
             }
 
             if ($include_content && !empty($tile['content_file'])) {
-                $fpath = __DIR__ . '/contents/' . $tile['content_file'];
+                $fpath = __DIR__ . '/content/' . $tile['content_file'];
                 if (file_exists($fpath)) {
                     $tile['article_html'] = file_get_contents($fpath);
                 }
@@ -402,7 +402,7 @@ function execute_mcp_tool($tool_name, $args) {
 
             if (!empty($content_file) && !empty($html_teaser)) {
                 if (preg_match('/^[a-zA-Z0-9_\-\.]+\.html$/', $content_file)) {
-                    file_put_contents(__DIR__ . '/contents/' . $content_file, $html_teaser);
+                    file_put_contents(__DIR__ . '/content/' . $content_file, $html_teaser);
                 }
             }
 
@@ -462,7 +462,7 @@ function execute_mcp_tool($tool_name, $args) {
                 throw new Exception("Source tile '{$name}' in language '{$source_lang}' not found.");
             }
 
-            $contents_dir = __DIR__ . '/contents/';
+            $contents_dir = __DIR__ . '/content/';
             $source_content = '';
             if (!empty($source_tile['content_file'])) {
                 $fpath = $contents_dir . $source_tile['content_file'];

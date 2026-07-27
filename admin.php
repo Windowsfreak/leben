@@ -63,7 +63,7 @@ try {
                 throw new Exception("Target language ('{$target_lang}') is identical to source language ('{$source_lang}').");
             }
 
-            $contents_dir = __DIR__ . '/contents/';
+            $contents_dir = __DIR__ . '/content/';
             $source_content = '';
             if (!empty($source_tile['content_file'])) {
                 $fpath = $contents_dir . $source_tile['content_file'];
@@ -524,7 +524,7 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
             if (!preg_match('/^[a-zA-Z0-9_\-\.]+\.html$/', $file)) {
                 throw new Exception("Invalid file name format.");
             }
-            $path = __DIR__ . '/contents/' . $file;
+            $path = __DIR__ . '/content/' . $file;
             if (!file_exists($path)) {
                 echo json_encode(['status' => 'success', 'content' => '']);
             } else {
@@ -538,7 +538,7 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
             if (!preg_match('/^[a-zA-Z0-9_\-\.]+\.html$/', $file)) {
                 throw new Exception("Invalid file name format.");
             }
-            $path = __DIR__ . '/contents/' . $file;
+            $path = __DIR__ . '/content/' . $file;
             if (file_put_contents($path, $content) === false) {
                 throw new Exception("Failed to write to file.");
             }
@@ -572,7 +572,7 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
                 if (!preg_match('/^[a-zA-Z0-9_\-\.]+\.html$/', $content_file)) {
                     throw new Exception("Invalid content file format.");
                 }
-                $path = __DIR__ . '/contents/' . $content_file;
+                $path = __DIR__ . '/content/' . $content_file;
                 if (file_exists($path)) {
                     $content = file_get_contents($path);
                 }

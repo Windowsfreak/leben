@@ -37,7 +37,7 @@ try {
     }
     
     $items = [];
-    $contents_dir = __DIR__ . '/contents/';
+    $contents_dir = __DIR__ . '/content/';
 
     foreach ($tiles as $idx => $tile) {
         $name = $tile['name'];
