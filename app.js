@@ -360,7 +360,10 @@ function parseURLForTile() {
     // 1. Check Hash first (e.g. #support, #support:en, #contact:en, #en/contact)
     const rawHash = window.location.hash ? window.location.hash.substring(1) : '';
     if (rawHash) {
-        let hashStr = decodeURIComponent(rawHash).trim();
+        let hashStr = rawHash.trim();
+        try {
+            hashStr = decodeURIComponent(hashStr);
+        } catch (e) {}
         if (hashStr.startsWith('/')) hashStr = hashStr.substring(1);
 
         if (hashStr.includes(':')) {
@@ -382,7 +385,14 @@ function parseURLForTile() {
 
     // 2. Check Pathname if no hash tile found (e.g. /support, /leben/support, /de/support)
     if (!tileName) {
-        const pathSegments = window.location.pathname.split('/').filter(Boolean);
+        const rawSegments = window.location.pathname.split('/').filter(Boolean);
+        const pathSegments = rawSegments.map(s => {
+            try {
+                return decodeURIComponent(s);
+            } catch (e) {
+                return s;
+            }
+        });
         const ignoredPaths = ['leben', 'index.html', 'index.php'];
         const cleanSegments = pathSegments.filter(s => !ignoredPaths.includes(s.toLowerCase()));
 
