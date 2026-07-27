@@ -829,6 +829,17 @@ function lazyLoadAdmin(callback) {
                 document.body.appendChild(dialog);
             });
 
+            // Inject Admin Bar into .container if loaded from admin.html
+            const adminBar = tempDiv.querySelector('#adminBar');
+            if (adminBar && !document.getElementById('adminBar')) {
+                const container = document.querySelector('.container');
+                if (container) {
+                    container.insertBefore(adminBar, container.firstChild);
+                } else {
+                    document.body.insertBefore(adminBar, document.body.firstChild);
+                }
+            }
+
             // Initialize admin listeners and scripts
             if (typeof window.initAdmin === 'function') {
                 window.initAdmin();
@@ -849,10 +860,12 @@ function lazyLoadAdmin(callback) {
 function setAdminMode(active) {
     isAdmin = active;
     const adminBar = document.getElementById('adminBar');
-    if (active) {
-        adminBar.classList.add('active');
-        lazyLoadMonaco();
-    } else {
-        adminBar.classList.remove('active');
+    if (adminBar) {
+        if (active) {
+            adminBar.classList.add('active');
+            lazyLoadMonaco();
+        } else {
+            adminBar.classList.remove('active');
+        }
     }
 }

@@ -61,12 +61,14 @@ function logout() {
 function setAdminMode(active) {
     isAdmin = active;
     const adminBar = document.getElementById('adminBar');
-    if (active) {
-        adminBar.classList.add('active');
-        lazyLoadMonaco();
-        fetchTranslationStatuses();
-    } else {
-        adminBar.classList.remove('active');
+    if (adminBar) {
+        if (active) {
+            adminBar.classList.add('active');
+            lazyLoadMonaco();
+            fetchTranslationStatuses();
+        } else {
+            adminBar.classList.remove('active');
+        }
     }
 }
 

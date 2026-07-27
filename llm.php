@@ -119,6 +119,7 @@ try {
 
     if ($want_json) {
         header('Content-Type: application/json; charset=utf-8');
+        header('X-LLM-Format: JSON');
         echo json_encode([
             'status' => 'success',
             'query' => $q,
@@ -134,6 +135,7 @@ try {
 
     // TOON (Token-Oriented Object Notation) Output
     header('Content-Type: text/plain; charset=utf-8');
+    header('X-LLM-Format: TOON');
     echo "# Leben App LLM Search Results\n";
     echo "# Query: " . ($q ? "'{$q}'" : "[Curated List]") . " | Lang: {$lang} | Format: {$format} | Total: " . count($items) . "\n\n";
 
@@ -160,10 +162,12 @@ try {
 } catch (Exception $e) {
     if ($want_json) {
         header('Content-Type: application/json; charset=utf-8');
+        header('X-LLM-Format: JSON');
         http_response_code(500);
         echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
     } else {
         header('Content-Type: text/plain; charset=utf-8');
+        header('X-LLM-Format: TOON');
         http_response_code(500);
         echo "ERROR: " . $e->getMessage();
     }
