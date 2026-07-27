@@ -307,7 +307,7 @@ body.has-wallpaper::before {
     width: 100%;
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
+    align-items: flex-start;
     align-content: space-between;
 }
 
@@ -317,31 +317,34 @@ body.has-wallpaper::before {
     font-size: clamp(1.4rem, 5cqw, 2.2rem);
     color: var(--tile-color, var(--accent));
     margin-right: 0.6rem;
+    margin-top: 0.1rem;
     margin-bottom: 0.3rem;
     flex-shrink: 0;
 }
 
-/* Title next to icon */
+/* Title next to icon, allowed to shrink horizontally without dropping below icon */
 .tile h3 {
     font-family: 'Outfit', sans-serif;
-    font-size: clamp(1.15rem, 4.5cqw, 1.5rem);
+    font-size: clamp(1.1rem, 4.2cqw, 1.45rem);
     font-weight: 700;
     letter-spacing: -0.02em;
     margin-bottom: 0.3rem;
     line-height: 1.25;
-    flex: 1 1 auto;
+    flex: 1 1 0px;
+    min-width: 0;
 }
 
-/* Teaser paragraph full width below title and icon */
+/* Teaser paragraph forced onto line 2 below title and icon */
 .tile p {
+    flex-basis: 100%;
     width: 100%;
     font-size: clamp(0.82rem, 3.2cqw, 0.92rem);
     color: var(--text-secondary);
     line-height: 1.45;
     display: -webkit-box;
-    -webkit-line-clamp: 3;
+    -webkit-line-clamp: 4;
     -webkit-box-orient: vertical;
-    line-clamp: 3;
+    line-clamp: 4;
     overflow: clip;
 }
 
@@ -513,13 +516,35 @@ dialog[open]::backdrop {
 
 .lightbox-article ul {
     margin-bottom: 1.25rem;
-    padding-left: 1.25rem;
+    padding-left: 0;
+    list-style: none;
     color: var(--text-secondary);
 }
 
 .lightbox-article li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
     margin-bottom: 0.5rem;
     line-height: 1.5;
+    width: 100%;
+}
+
+.lightbox-article li a {
+    flex: 1 1 auto;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.lightbox-article li .post-date {
+    flex-shrink: 0;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+    opacity: 0.85;
 }
 
 .dialog-body a,
