@@ -248,9 +248,77 @@ function check_translation_matrix($tile_name = null) {
 }
 
 // -------------------------------------------------------------------------
+// Helper: Check Admin Password Authentication against ADMIN_PASSWORD_HASH
+// -------------------------------------------------------------------------
+function is_mcp_authenticated($args = []) {
+    if (!defined('ADMIN_PASSWORD_HASH')) {
+        return false;
+    }
+
+    // 1. Password passed in tool arguments
+    $provided = $args['password'] ?? ($args['auth_password'] ?? ($args['_auth']['password'] ?? null));
+    if (!empty($provided)) {
+        if (password_verify($provided, ADMIN_PASSWORD_HASH) || $provided === ADMIN_PASSWORD_HASH) {
+            return true;
+        }
+    }
+
+    // 2. Active PHP session
+    if (session_status() === PHP_SESSION_NONE) {
+        @session_start();
+    }
+    if (!empty($_SESSION['admin_logged_in'])) {
+        return true;
+    }
+
+    // 3. HTTP Authorization header (Bearer or Basic)
+    $authHeader = $_SERVER['HTTP_AUTHORIZATION'] ?? ($_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
+    if ($authHeader) {
+        if (strcasecmp(substr($authHeader, 0, 7), 'Bearer ') === 0) {
+            $pass = trim(substr($authHeader, 7));
+            if (password_verify($pass, ADMIN_PASSWORD_HASH) || $pass === ADMIN_PASSWORD_HASH) {
+                return true;
+            }
+        } elseif (strcasecmp(substr($authHeader, 0, 6), 'Basic ') === 0) {
+            $decoded = base64_decode(substr($authHeader, 6));
+            if ($decoded && strpos($decoded, ':') !== false) {
+                list(, $pass) = explode(':', $decoded, 2);
+                if (password_verify($pass, ADMIN_PASSWORD_HASH) || $pass === ADMIN_PASSWORD_HASH) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // 4. Custom HTTP headers
+    $xPass = $_SERVER['HTTP_X_ADMIN_PASSWORD'] ?? ($_SERVER['HTTP_X_API_KEY'] ?? '');
+    if (!empty($xPass)) {
+        if (password_verify($xPass, ADMIN_PASSWORD_HASH) || $xPass === ADMIN_PASSWORD_HASH) {
+            return true;
+        }
+    }
+
+    // 5. Query parameters
+    $paramPass = $_GET['password'] ?? ($_GET['auth'] ?? null);
+    if (!empty($paramPass)) {
+        if (password_verify($paramPass, ADMIN_PASSWORD_HASH) || $paramPass === ADMIN_PASSWORD_HASH) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+// -------------------------------------------------------------------------
 // 3. MCP Tool Dispatcher
 // -------------------------------------------------------------------------
 function execute_mcp_tool($tool_name, $args) {
+    // Restrict administrative actions behind admin password auth
+    $admin_tools = ['create_tile', 'translate_tile', 'list_translation_status'];
+    if (in_array($tool_name, $admin_tools) && !is_mcp_authenticated($args)) {
+        throw new Exception("Unauthorized: Admin password authentication required for administrative tool '{$tool_name}'.");
+    }
+
     $db = get_db_connection();
 
     switch ($tool_name) {
