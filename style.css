@@ -339,9 +339,9 @@ body.has-wallpaper::before {
     color: var(--text-secondary);
     line-height: 1.45;
     display: -webkit-box;
-    -webkit-line-clamp: 5;
+    -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
-    line-clamp: 5;
+    line-clamp: 3;
     overflow: clip;
 }
 
