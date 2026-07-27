@@ -273,7 +273,6 @@ body.has-wallpaper::before {
     width: 100%;
 }
 
-/* Tile Widget */
 .tile {
     container-type: inline-size;
     aspect-ratio: 2 / 1;
@@ -295,6 +294,103 @@ body.has-wallpaper::before {
         box-shadow 0.3s;
     box-shadow: 0 10px 25px var(--shadow-color),
         inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+}
+
+/* Shorthand text color helper classes */
+.red { color: var(--red); }
+.green { color: var(--green); }
+.blue { color: var(--blue); }
+.yellow { color: var(--yellow); }
+.grey { color: var(--grey); }
+.white { color: var(--white); }
+
+/* Tile Links */
+.tile a {
+    color: var(--link-color, var(--accent));
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    transition: color 0.2s ease;
+}
+
+.tile a:hover {
+    color: var(--link-hover, var(--link-color));
+}
+
+/* Tile Base Theme Overrides (Dark / Light contrast modes) */
+.tile.theme-dark {
+    --text-primary: #f8fafc;
+    --text-secondary: #cbd5e1;
+    --link-color: #60a5fa;
+    --link-hover: #93c5fd;
+    --red: #f87171;
+    --green: #4ade80;
+    --blue: #60a5fa;
+    --yellow: #facc15;
+    --grey: #cbd5e1;
+    --white: #ffffff;
+}
+
+.tile.theme-light {
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --link-color: #2563eb;
+    --link-hover: #1d4ed8;
+    --red: #dc2626;
+    --green: #15803d;
+    --blue: #1d4ed8;
+    --yellow: #a16207;
+    --grey: #475569;
+    --white: #0f172a;
+}
+
+/* Color Modifier Classes (override specific shorthand color & contrasting links) */
+.tile.theme-blue {
+    --blue: #38bdf8; /* bright cyan blue for contrast on blue background */
+    --link-color: #facc15; /* bright yellow link for high contrast on blue */
+    --link-hover: #fde047;
+}
+
+.tile.theme-light.theme-blue {
+    --blue: #1e3a8a; /* navy blue */
+    --link-color: #1e40af;
+    --link-hover: #1d4ed8;
+}
+
+.tile.theme-red {
+    --red: #fca5a5; /* bright soft red */
+    --link-color: #facc15; /* bright yellow link on red */
+    --link-hover: #fde047;
+}
+
+.tile.theme-light.theme-red {
+    --red: #991b1b;
+    --link-color: #991b1b;
+    --link-hover: #7f1d1d;
+}
+
+.tile.theme-green {
+    --green: #86efac; /* bright mint green */
+    --link-color: #facc15; /* bright yellow link on green */
+    --link-hover: #fde047;
+}
+
+.tile.theme-light.theme-green {
+    --green: #047857;
+    --link-color: #047857;
+    --link-hover: #065f46;
+}
+
+.tile.theme-yellow {
+    --yellow: #b45309; /* dark amber yellow */
+    --link-color: #1d4ed8; /* strong blue link on yellow background */
+    --link-hover: #1e40af;
+}
+
+.tile.theme-dark.theme-yellow {
+    --yellow: #fef08a; /* bright yellow */
+    --link-color: #38bdf8; /* cyan link on dark gold */
+    --link-hover: #7dd3fc;
 }
 
 .tile:hover {

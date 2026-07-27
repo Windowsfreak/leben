@@ -295,6 +295,58 @@ function loadMore() {
         });
 }
 
+// Apply custom background and modular theme override classes to a tile element
+function applyTileTheme(tileElement, backgroundValue) {
+    if (!tileElement) return;
+
+    // Remove any existing theme-* classes
+    Array.from(tileElement.classList)
+        .filter(c => c.startsWith('theme-'))
+        .forEach(c => tileElement.classList.remove(c));
+
+    if (!backgroundValue || typeof backgroundValue !== 'string' || !backgroundValue.trim()) {
+        tileElement.style.background = '';
+        return;
+    }
+
+    const trimmed = backgroundValue.trim();
+    const commentMatch = trimmed.match(/\/\*\s*([a-zA-Z0-9_-]+)\s*\*\//);
+    const cleanBackground = trimmed.replace(/\/\*.*?\*\//g, '').trim();
+
+    if (cleanBackground) {
+        tileElement.style.background = cleanBackground;
+    } else {
+        tileElement.style.background = '';
+    }
+
+    if (commentMatch) {
+        const rawTag = commentMatch[1].toLowerCase().replace(/[-_]/g, '');
+        let mode = 'dark';
+        let color = '';
+
+        if (rawTag.startsWith('light')) {
+            mode = 'light';
+            color = rawTag.replace('light', '');
+        } else if (rawTag.startsWith('dark')) {
+            mode = 'dark';
+            color = rawTag.replace('dark', '');
+        } else {
+            color = rawTag;
+            if (color === 'yellow') {
+                mode = 'light';
+            } else {
+                mode = 'dark';
+            }
+        }
+
+        tileElement.classList.add(`theme-${mode}`);
+        if (color && ['blue', 'red', 'green', 'yellow'].includes(color)) {
+            tileElement.classList.add(`theme-${color}`);
+        }
+    }
+}
+window.applyTileTheme = applyTileTheme;
+
 // Create the DOM element for a tile
 function createTileElement(tile, isMini = false) {
     const tileDiv = document.createElement('div');
@@ -303,10 +355,8 @@ function createTileElement(tile, isMini = false) {
     // Set custom CSS property for theme accent color from database
     tileDiv.style.setProperty('--tile-color', tile.accent_color || '#fbbf24');
 
-    // Set custom background style if specified
-    if (tile.background && tile.background.trim() !== '') {
-        tileDiv.style.background = tile.background.trim();
-    }
+    // Set custom background style & theme class if specified
+    applyTileTheme(tileDiv, tile.background);
 
     // Opacity overlay for invisible tiles in admin mode
     if (!tile.visible) {

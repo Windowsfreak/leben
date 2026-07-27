@@ -128,6 +128,11 @@ function openEditor(tile = null) {
         htmlContent = '<h3>Neue Kachel</h3>\n<p>HTML-Struktur hier einfügen...</p>';
         document.getElementById('editHtmlContent').value = htmlContent;
      }
+
+    const saveAndSyncBtn = document.getElementById('saveAndSyncBtn');
+    if (saveAndSyncBtn) {
+        saveAndSyncBtn.style.display = (tile && tile.id) ? 'inline-flex' : 'none';
+    }
     
     // Toggle correct input fields depending on reference type
     const refType = document.getElementById('editReferenceType').value;
@@ -207,12 +212,150 @@ function updateLivePreview() {
     
     if (previewTile && previewContent) {
         previewTile.style.setProperty('--tile-color', color);
-        if (background.trim() !== '') {
+        if (typeof window.applyTileTheme === 'function') {
+            window.applyTileTheme(previewTile, background);
+        } else if (background.trim() !== '') {
             previewTile.style.background = background.trim();
         } else {
             previewTile.style.background = '';
         }
         previewContent.innerHTML = html;
+    }
+}
+
+// Automatically detect background brightness, saturation, and primary color from background input
+function detectBackgroundColorAndTheme() {
+    const input = document.getElementById('editBackground');
+    if (!input) return;
+    
+    let bgStr = input.value || '';
+    if (!bgStr.trim()) {
+        alert("Bitte zuerst ein Hintergrundbild oder eine Farbe in das Feld eingeben.");
+        return;
+    }
+
+    // Clean out existing comment tag
+    const cleanBg = bgStr.replace(/\/\*.*?\*\//g, '').trim();
+
+    // Check if it contains an image URL
+    const urlMatch = cleanBg.match(/url\(['"]?(.*?)['"]?\)/i);
+    let imageUrl = urlMatch ? urlMatch[1] : null;
+
+    // Helper to evaluate average RGB to HSL and decide theme tag
+    const processRgb = (r, g, b) => {
+        const rNorm = r / 255;
+        const gNorm = g / 255;
+        const bNorm = b / 255;
+        const max = Math.max(rNorm, gNorm, bNorm);
+        const min = Math.min(rNorm, gNorm, bNorm);
+        const d = max - min;
+
+        let h = 0;
+        let s = 0;
+        const l = (max + min) / 2;
+
+        if (d !== 0) {
+            s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+            switch (max) {
+                case rNorm: h = (gNorm - bNorm) / d + (gNorm < bNorm ? 6 : 0); break;
+                case gNorm: h = (bNorm - rNorm) / d + 2; break;
+                case bNorm: h = (rNorm - gNorm) / d + 4; break;
+            }
+            h *= 60;
+        }
+
+        const lPct = l * 100;
+        const sPct = s * 100;
+
+        let detectedTag = '';
+
+        // Rule: If brightness is between 25% and 75% AND saturation > 30%, determine closest primary color
+        if (lPct >= 25 && lPct <= 75 && sPct > 30) {
+            let primaryColor = '';
+            if (h >= 340 || h < 25) {
+                primaryColor = 'red';
+            } else if (h >= 25 && h < 80) {
+                primaryColor = 'yellow';
+            } else if (h >= 80 && h < 165) {
+                primaryColor = 'green';
+            } else if (h >= 165 && h < 260) {
+                primaryColor = 'blue';
+            } else if (h >= 260 && h < 340) {
+                primaryColor = 'red';
+            }
+
+            if (lPct < 40) {
+                detectedTag = (primaryColor === 'blue' || primaryColor === 'red') ? primaryColor : `dark${primaryColor}`;
+            } else if (lPct > 60) {
+                detectedTag = `light${primaryColor}`;
+            } else {
+                detectedTag = primaryColor;
+            }
+        } else {
+            // Otherwise: dark if brightness < 40%, light if brightness >= 40%
+            if (lPct < 40) {
+                detectedTag = 'dark';
+            } else {
+                detectedTag = 'light';
+            }
+        }
+
+        input.value = `${cleanBg} /*${detectedTag}*/`;
+        formDirty = true;
+        updateLivePreview();
+    };
+
+    if (imageUrl) {
+        const img = new Image();
+        img.crossOrigin = 'Anonymous';
+        img.onload = () => {
+            try {
+                const canvas = document.createElement('canvas');
+                canvas.width = 50;
+                canvas.height = 50;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, 50, 50);
+                const imgData = ctx.getImageData(0, 0, 50, 50).data;
+
+                let rSum = 0, gSum = 0, bSum = 0, count = 0;
+                for (let i = 0; i < imgData.length; i += 4) {
+                    const alpha = imgData[i + 3];
+                    if (alpha > 128) {
+                        rSum += imgData[i];
+                        gSum += imgData[i + 1];
+                        bSum += imgData[i + 2];
+                        count++;
+                    }
+                }
+                if (count > 0) {
+                    processRgb(rSum / count, gSum / count, bSum / count);
+                } else {
+                    processRgb(128, 128, 128);
+                }
+            } catch (err) {
+                console.warn("Canvas image reading restricted, falling back to default.", err);
+                input.value = `${cleanBg} /*dark*/`;
+                formDirty = true;
+                updateLivePreview();
+            }
+        };
+        img.onerror = () => {
+            alert("Hintergrundbild konnte nicht geladen werden.");
+        };
+        img.src = imageUrl;
+    } else {
+        const tempElem = document.createElement('div');
+        tempElem.style.color = cleanBg;
+        document.body.appendChild(tempElem);
+        const computedColor = getComputedStyle(tempElem).color;
+        document.body.removeChild(tempElem);
+
+        const rgbMatch = computedColor.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+        if (rgbMatch) {
+            processRgb(parseInt(rgbMatch[1]), parseInt(rgbMatch[2]), parseInt(rgbMatch[3]));
+        } else {
+            alert("Konnte die Farbe aus der Eingabe nicht auslesen.");
+        }
     }
 }
 
@@ -343,8 +486,8 @@ function closeSettingsWithConfirm() {
     window.isSettingsEditing = false;
 }
 
-// Save (Insert / Update) tile details
-function saveTile() {
+// Save (Insert / Update) tile details, optionally syncing non-language settings to sibling tiles
+function saveTile(syncSiblings = false) {
     const id = document.getElementById('editId').value;
     const form = document.getElementById('editorForm');
     
@@ -367,12 +510,19 @@ function saveTile() {
     formData.append('sort_order', document.getElementById('editSortOrder').value);
     formData.append('accent_color', document.getElementById('editAccentColor').value);
     formData.append('background', document.getElementById('editBackground').value);
+    if (syncSiblings) {
+        formData.append('sync_siblings', 'true');
+    }
     
-    // Show spinner in save button during network request
+    // Show spinner in active save button during network request
     const saveBtn = document.getElementById('saveTileBtn');
-    const origHtml = saveBtn.innerHTML;
+    const syncBtn = document.getElementById('saveAndSyncBtn');
+    const targetBtn = (syncSiblings && syncBtn) ? syncBtn : saveBtn;
+    const origHtml = targetBtn.innerHTML;
+    
     saveBtn.disabled = true;
-    saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generiere Vektor...';
+    if (syncBtn) syncBtn.disabled = true;
+    targetBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Speichere...';
     
     fetch('admin.php?action=save', {
         method: 'POST',
@@ -398,7 +548,8 @@ function saveTile() {
         })
         .finally(() => {
             saveBtn.disabled = false;
-            saveBtn.innerHTML = origHtml;
+            if (syncBtn) syncBtn.disabled = false;
+            targetBtn.innerHTML = origHtml;
         });
 }
 
@@ -568,6 +719,11 @@ function initAdmin() {
     document.getElementById('cancelEditorBtn').addEventListener('click', closeEditorWithConfirm);
     document.getElementById('autoTranslateBtn').addEventListener('click', triggerAutoTranslate);
     
+    const detectColorBtn = document.getElementById('detectThemeColorBtn');
+    if (detectColorBtn) {
+        detectColorBtn.addEventListener('click', detectBackgroundColorAndTheme);
+    }
+    
     document.getElementById('closeSettingsBtn').addEventListener('click', closeSettingsWithConfirm);
     document.getElementById('cancelSettingsBtn').addEventListener('click', closeSettingsWithConfirm);
     
@@ -707,6 +863,14 @@ function initAdmin() {
         e.preventDefault();
         saveTile();
     });
+
+    const saveAndSyncBtn = document.getElementById('saveAndSyncBtn');
+    if (saveAndSyncBtn) {
+        saveAndSyncBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            saveTile(true);
+        });
+    }
 
     // Lightbox Editor Form Submit
     document.getElementById('closeLightboxEditorBtn').addEventListener('click', () => {

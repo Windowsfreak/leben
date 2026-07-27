@@ -256,9 +256,47 @@ try {
             $stmt->bindValue(':sort_order', $sort_order, PDO::PARAM_INT);
             $stmt->execute();
 
+            $sync_siblings = ($_POST['sync_siblings'] ?? 'false') === 'true' || ($_POST['sync_siblings'] ?? '0') === '1';
+            $synced_count = 0;
+
+            if ($sync_siblings) {
+                $saved_id = $id;
+                if (!$saved_id) {
+                    $id_stmt = $db->prepare("SELECT id FROM tiles WHERE name = :name AND language = :language LIMIT 1");
+                    $id_stmt->execute([':name' => $name, ':language' => $language]);
+                    $saved_row = $id_stmt->fetch();
+                    $saved_id = $saved_row ? (int)$saved_row['id'] : 0;
+                }
+
+                $sync_stmt = $db->prepare("
+                    UPDATE tiles 
+                    SET type = :type,
+                        link = :link,
+                        visible = :visible,
+                        accent_color = :accent_color,
+                        background = :background,
+                        sort_order = :sort_order,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE name = :name AND id != :saved_id
+                ");
+                $sync_stmt->bindValue(':type', $type, PDO::PARAM_STR);
+                $sync_stmt->bindValue(':link', $link ?: null, PDO::PARAM_STR);
+                $sync_stmt->bindValue(':visible', $visible, PDO::PARAM_BOOL);
+                $sync_stmt->bindValue(':accent_color', $accent_color, PDO::PARAM_STR);
+                $sync_stmt->bindValue(':background', $background ?: null, PDO::PARAM_STR);
+                $sync_stmt->bindValue(':sort_order', $sort_order, PDO::PARAM_INT);
+                $sync_stmt->bindValue(':name', $name, PDO::PARAM_STR);
+                $sync_stmt->bindValue(':saved_id', $saved_id, PDO::PARAM_INT);
+                $sync_stmt->execute();
+                $synced_count = $sync_stmt->rowCount();
+            }
+
             echo json_encode([
                 'status' => 'success',
-                'message' => 'Tile saved successfully.'
+                'message' => $sync_siblings 
+                    ? "Kachel gespeichert und Einstellungen auf {$synced_count} Geschwister-Kachel(n) übertragen." 
+                    : 'Kachel erfolgreich gespeichert.',
+                'synced_count' => $synced_count
             ]);
             break;
 
