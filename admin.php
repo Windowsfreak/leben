@@ -243,9 +243,18 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
             break;
 
         case 'save':
-            $id = isset($_POST['id']) ? (int)$_POST['id'] : null;
+            $id = isset($_POST['id']) && $_POST['id'] !== '' ? (int)$_POST['id'] : null;
             $name = trim($_POST['name'] ?? '');
             $language = trim($_POST['language'] ?? 'de');
+
+            if (!$id && !empty($name) && !empty($language)) {
+                $stmt = $db->prepare("SELECT id FROM tiles WHERE name = :name AND language = :language LIMIT 1");
+                $stmt->execute([':name' => $name, ':language' => $language]);
+                $found = $stmt->fetch();
+                if ($found) {
+                    $id = (int)$found['id'];
+                }
+            }
             $title = trim($_POST['title'] ?? '');
             $html_teaser = trim($_POST['html_teaser'] ?? '');
             $summary = trim($_POST['summary'] ?? '');
