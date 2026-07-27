@@ -193,6 +193,61 @@ function get_mcp_tools() {
 }
 
 // -------------------------------------------------------------------------
+// Helper: Check matrix of tile translations across languages
+// -------------------------------------------------------------------------
+function check_translation_matrix($tile_name = null) {
+    $db = get_db_connection();
+    $sql = "SELECT name, language, title, content_file, updated_at FROM tiles";
+    $params = [];
+    if (!empty($tile_name)) {
+        $sql .= " WHERE name = :name";
+        $params[':name'] = $tile_name;
+    }
+    $sql .= " ORDER BY name ASC, language ASC";
+
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $matrix = [];
+    foreach ($rows as $row) {
+        $name = $row['name'];
+        $lang = $row['language'];
+        if (!isset($matrix[$name])) {
+            $matrix[$name] = [
+                'name' => $name,
+                'languages' => [],
+                'missing_languages' => [],
+                'stale' => false
+            ];
+        }
+        $matrix[$name]['languages'][$lang] = [
+            'title' => $row['title'],
+            'content_file' => $row['content_file'],
+            'updated_at' => $row['updated_at']
+        ];
+    }
+
+    $all_supported_langs = ['de', 'en'];
+    $result = [];
+    foreach ($matrix as $name => $data) {
+        $present_langs = array_keys($data['languages']);
+        $missing = array_values(array_diff($all_supported_langs, $present_langs));
+        $data['missing_languages'] = $missing;
+
+        if (count($present_langs) > 1) {
+            $times = array_map(function($l) { return strtotime($l['updated_at']); }, $data['languages']);
+            if (abs(max($times) - min($times)) > 86400) {
+                $data['stale'] = true;
+            }
+        }
+        $result[] = $data;
+    }
+
+    return $result;
+}
+
+// -------------------------------------------------------------------------
 // 3. MCP Tool Dispatcher
 // -------------------------------------------------------------------------
 function execute_mcp_tool($tool_name, $args) {
