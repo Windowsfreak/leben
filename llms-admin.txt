@@ -1,0 +1,26 @@
+# Leben App LLM Admin & Agent Automation Interface
+
+> Protected administrative APIs for automated AI tools, content management, translation health, and card generation.
+
+## Authentication
+Administrative endpoints require session authentication or admin credential verification.
+
+## Endpoint: /llm_admin.php
+
+### Actions
+1. `GET /llm_admin.php?action=status`
+   - Returns full translation health matrix for all cards.
+   - Identifies source language (oldest `created_at` timestamp).
+   - Flags stale translations (`target.updated_at < effective_source_mtime`).
+
+2. `POST /llm_admin.php?action=create_master`
+   - Accepts master card metadata (`name`, `language`, `title`, `category_tags`, `high_level_summary`, `html_content`, `content_file`).
+   - Seeds vector embedding using Ollama.
+
+3. `POST /llm_admin.php?action=translate`
+   - Accepts `name` and `target_lang` (`en` or `de`).
+   - Uses local LLM completions with generous timeout (`set_time_limit(300)`) to translate card metadata and content HTML files from source language.
+   - Updates target database row and saves translated content partial to disk (`contents/name_lang.html`).
+
+4. `POST /llm_admin.php?action=update`
+   - Updates existing tile fields, content file, or regenerates vector embeddings.

@@ -1,0 +1,10 @@
+.htaccess
+router.php
+config.json
+config.php
+db_setup.php
+contents/
+tileimg/
+*.jpg
+*.JPEG
+*.vcf

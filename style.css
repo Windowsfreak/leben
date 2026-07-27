@@ -1,0 +1,802 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Outfit:wght@400;500;600;700;800&display=swap');
+
+.llm-link { display: none; }
+
+:root {
+    /* Dark Mode Defaults */
+    --bg-color: #0b0f19;
+    --bg-gradient: radial-gradient(circle at 50% -20%, #1e293b 0%, #0b0f19 80%);
+    --card-bg: rgba(17, 24, 39, 0.60);
+    /* 60% translucent card background */
+    --card-border: rgba(255, 255, 255, 0.08);
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --accent: #fbbf24;
+    /* Amber / Gold */
+    --accent-glow: rgba(251, 191, 36, 0.25);
+    --danger: #ef4444;
+    --dialog-bg: #0f172a;
+    --shadow-color: rgba(0, 0, 0, 0.4);
+    --input-bg: rgba(0, 0, 0, 0.30);
+    /* Dark translucent background for white text */
+    --wallpaper-overlay: rgba(11, 15, 25, 0.55);
+    /* 55% tint to let wallpaper show through more */
+    --admin-btn-bg: rgba(15, 23, 42, 0.80);
+    /* Dark slate background */
+
+    /* Shorthand text colors (Dark Mode) */
+    --red: #f87171;
+    --green: #4ade80;
+    --blue: #60a5fa;
+    --yellow: #facc15;
+    --grey: var(--text-secondary);
+    --white: var(--text-primary);
+}
+
+/* Light mode support using media query */
+@media (prefers-color-scheme: light) {
+    :root {
+        --bg-color: #f8fafc;
+        --bg-gradient: radial-gradient(circle at 50% -20%, #e2e8f0 0%, #f8fafc 80%);
+        --card-bg: rgba(255, 255, 255, 0.70);
+        /* 70% translucent card background */
+        --card-border: rgba(0, 0, 0, 0.08);
+        --text-primary: #0f172a;
+        --text-secondary: #475569;
+        --accent: #d97706;
+        /* Darker amber for contrast */
+        --accent-glow: rgba(217, 119, 6, 0.2);
+        --danger: #dc2626;
+        --dialog-bg: #ffffff;
+        --shadow-color: rgba(0, 0, 0, 0.08);
+        --input-bg: rgba(255, 255, 255, 0.50);
+        /* Bright translucent background for dark text */
+        --wallpaper-overlay: rgba(248, 250, 252, 0.55);
+        /* 55% tint to let wallpaper show through more */
+        --admin-btn-bg: rgba(255, 255, 255, 0.80);
+        /* Translucent white background */
+
+        /* Shorthand text colors (Bright/Light Mode) */
+        --red: #dc2626;
+        --green: #15803d;
+        /* Dark green for visibility */
+        --blue: #1d4ed8;
+        /* Dark blue for visibility */
+        --yellow: #a16207;
+        /* Muted mustard yellow for visibility */
+        --grey: var(--text-secondary);
+        --white: var(--text-primary);
+    }
+}
+
+/* User override via class on body */
+body.light-theme {
+    --bg-color: #f8fafc;
+    --bg-gradient: radial-gradient(circle at 50% -20%, #e2e8f0 0%, #f8fafc 80%);
+    --card-bg: rgba(255, 255, 255, 0.70);
+    /* 70% translucent card background */
+    --card-border: rgba(0, 0, 0, 0.08);
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --accent: #d97706;
+    --accent-glow: rgba(217, 119, 6, 0.2);
+    --danger: #dc2626;
+    --dialog-bg: #ffffff;
+    --shadow-color: rgba(0, 0, 0, 0.08);
+    --input-bg: rgba(255, 255, 255, 0.50);
+    /* Bright translucent background for dark text */
+    --wallpaper-overlay: rgba(248, 250, 252, 0.55);
+    /* 55% tint to let wallpaper show through more */
+    --admin-btn-bg: rgba(255, 255, 255, 0.80);
+    /* Translucent white background */
+
+    /* Shorthand text colors (Bright/Light Mode) */
+    --red: #dc2626;
+    --green: #15803d;
+    --blue: #1d4ed8;
+    --yellow: #a16207;
+    --grey: var(--text-secondary);
+    --white: var(--text-primary);
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: var(--bg-color);
+    background-image: var(--bg-gradient);
+    background-attachment: fixed;
+    background-size: cover;
+    color: var(--text-primary);
+    min-height: 100dvh;
+    padding: 2rem 1.5rem;
+    overflow-y: scroll;
+    scrollbar-gutter: stable;
+    overscroll-behavior: contain;
+    transition: background-image 0.5s ease-in-out, background-color 0.5s ease-in-out, color 0.3s;
+}
+
+/* Base Wallpaper Background Setup */
+body.has-wallpaper {
+    background-image: var(--wallpaper-url);
+    background-attachment: fixed;
+    background-position-x: 50%;
+    background-position-y: calc(var(--scroll-percent, 0) * 100%);
+    /* Keeps top of portrait images aligned initially */
+    background-repeat: no-repeat;
+    background-size: cover;
+    transition: background-position-y 0.1s ease-out;
+}
+
+body.has-wallpaper::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--wallpaper-overlay);
+    /* Dynamic overlay to keep text readable */
+    z-index: -1;
+    pointer-events: none;
+}
+
+/* Container */
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+}
+
+/* Header & Search Bar */
+.search-header {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.5rem;
+    margin-bottom: 1rem;
+}
+
+.main-title {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 800;
+    font-size: 2.5rem;
+    letter-spacing: -0.03em;
+    color: var(--text-secondary);
+    background: linear-gradient(to right, var(--text-secondary) 0%, var(--accent) 60%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    margin-bottom: 0.25rem;
+}
+
+.search-container {
+    width: 100%;
+    max-width: 600px;
+    position: relative;
+    container-type: inline-size;
+}
+
+.search-input {
+    width: 100%;
+    padding: 1.1rem 1.5rem 1.1rem 3.5rem;
+    border-radius: 50px;
+    border: 1px solid var(--card-border);
+    background: var(--input-bg);
+    color: var(--text-primary);
+    font-size: 1.1rem;
+    outline: none;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 20px var(--shadow-color),
+        inset 0 1px 1px rgba(255, 255, 255, 0.02);
+}
+
+.search-input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 20px var(--accent-glow),
+        0 4px 25px var(--shadow-color);
+    background: var(--card-bg);
+}
+
+.search-icon {
+    position: absolute;
+    left: 1.4rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-secondary);
+    font-size: 1.2rem;
+    pointer-events: none;
+    transition: color 0.3s;
+}
+
+.search-input:focus~.search-icon {
+    color: var(--accent);
+}
+
+/* Category Suggestions Area (Fake tiles/pills suggested when empty) */
+.category-suggestions {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    width: 100%;
+    max-width: 600px;
+    margin: -0.5rem auto 1rem auto;
+}
+
+.suggestion-pill {
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    border: 1px solid var(--card-border);
+    background: var(--input-bg);
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.suggestion-pill:hover,
+.suggestion-pill.active {
+    background: var(--accent);
+    color: var(--bg-color);
+    border-color: var(--accent);
+    box-shadow: 0 0 10px var(--accent-glow);
+}
+
+/* The Grid */
+.tiles-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 1.5rem;
+    width: 100%;
+}
+
+/* Tile Widget */
+.tile {
+    container-type: inline-size;
+    aspect-ratio: 2 / 1;
+    border-radius: 16px;
+    border: 1px solid var(--card-border);
+    /* High performance solid + custom gradient blend using color-mix */
+    background: radial-gradient(circle at top right, color-mix(in srgb, var(--tile-color, var(--accent)) 10%, transparent), var(--card-bg) 80%);
+    background-clip: padding-box;
+    /* prevent drawing over border */
+    padding: 1.25rem;
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+        border-color 0.3s,
+        box-shadow 0.3s;
+    box-shadow: 0 10px 25px var(--shadow-color),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.tile:hover {
+    transform: translateY(-6px) scale(1.02);
+    border-color: color-mix(in srgb, var(--tile-color, var(--accent)) 40%, var(--card-border));
+    box-shadow: 0 15px 35px var(--shadow-color),
+        0 0 20px color-mix(in srgb, var(--tile-color, var(--accent)) 25%, transparent);
+}
+
+.tile-content {
+    height: 100%;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+/* Gimmicks inside tiles */
+.tile h3 {
+    font-family: 'Outfit', sans-serif;
+    font-size: clamp(1.2rem, 5cqw, 1.6rem);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 0.4rem;
+    line-height: 1.2;
+}
+
+.tile p {
+    font-size: clamp(0.85rem, 3.5cqw, 0.95rem);
+    color: var(--text-secondary);
+    line-height: 1.4;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    line-clamp: 3;
+    overflow: clip;
+}
+
+/* Contact specific tiles styles */
+.phone-number {
+    font-family: 'Outfit', sans-serif;
+    font-size: clamp(1.4rem, 6cqw, 2rem);
+    font-weight: 800;
+    color: var(--accent);
+    margin: 0.5rem 0;
+}
+
+.icon {
+    font-size: clamp(2rem, 8cqw, 3rem);
+    color: var(--tile-color, var(--accent));
+    margin-bottom: 0.5rem;
+}
+
+.bold {
+    font-weight: 600;
+}
+
+/* Infinite Scroll / Loading State */
+.loading-trigger {
+    height: 60px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-top: 1rem;
+    color: var(--text-secondary);
+}
+
+.spinner {
+    width: 24px;
+    height: 24px;
+    border: 2px solid rgba(255, 255, 255, 0.1);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    display: none;
+}
+
+.spinner.active {
+    display: block;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Lightbox Dialog */
+dialog {
+    border: 1px solid var(--card-border);
+    border-radius: 20px;
+    background: var(--dialog-bg);
+    color: var(--text-primary);
+    max-width: 680px;
+    width: 90%;
+    padding: 0;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) scale(0.95);
+    opacity: 0;
+    transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    outline: none;
+}
+
+dialog[open] {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+}
+
+dialog::backdrop {
+    background: rgba(2, 6, 23, 0.85);
+    /* Slightly darker fallback background, no blur to avoid mobile rendering tax */
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+dialog[open]::backdrop {
+    opacity: 1;
+}
+
+.dialog-container {
+    max-height: 85dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.dialog-header-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.25rem 1.75rem;
+    border-bottom: 1px solid var(--card-border);
+}
+
+.dialog-header-title {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    font-size: 1.1rem;
+    color: var(--text-secondary);
+}
+
+.close-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: none;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    color: var(--text-primary);
+    font-size: 1.2rem;
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: background 0.2s, transform 0.2s;
+}
+
+.close-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    transform: scale(1.1);
+}
+
+.dialog-body {
+    padding: 1.75rem;
+    overflow-y: auto;
+    flex: 1;
+}
+
+/* Lightbox Content Styling */
+.lightbox-article .article-header {
+    margin-bottom: 1.5rem;
+}
+
+.lightbox-article h2 {
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.8rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin-bottom: 0.3rem;
+}
+
+.lightbox-article .subtitle {
+    color: var(--accent);
+    font-weight: 500;
+    font-size: 1rem;
+}
+
+.lightbox-article h3 {
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin-top: 1.5rem;
+    margin-bottom: 0.75rem;
+    color: var(--text-primary);
+}
+
+.lightbox-article p {
+    color: var(--text-secondary);
+    line-height: 1.6;
+    margin-bottom: 1rem;
+}
+
+.lightbox-article ul {
+    margin-bottom: 1.25rem;
+    padding-left: 1.25rem;
+    color: var(--text-secondary);
+}
+
+.lightbox-article li {
+    margin-bottom: 0.5rem;
+    line-height: 1.5;
+}
+
+.lightbox-article blockquote {
+    border-left: 3px solid var(--accent);
+    padding-left: 1rem;
+    margin: 1.5rem 0;
+    font-style: italic;
+    color: var(--text-primary);
+}
+
+.callout {
+    background: rgba(251, 191, 36, 0.05);
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    padding: 1rem;
+    margin: 1.5rem 0;
+}
+
+.callout h4 {
+    color: var(--accent);
+    margin-bottom: 0.25rem;
+}
+
+.callout p {
+    margin-bottom: 0;
+    font-size: 0.9rem;
+}
+
+/* Contact layout inside Lightbox */
+.contact-methods {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    margin: 1.5rem 0;
+}
+
+.contact-method-card {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 1rem;
+    border-radius: 12px;
+    border: 1px solid var(--card-border);
+}
+
+.contact-method-card i {
+    font-size: 1.5rem;
+    color: var(--accent);
+    width: 30px;
+    text-align: center;
+}
+
+.contact-method-card a {
+    color: var(--text-primary);
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.contact-method-card a:hover {
+    color: var(--accent);
+}
+
+.action-buttons-container {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1.5rem;
+}
+
+.btn {
+    flex: 1;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.85rem 1rem;
+    border-radius: 8px;
+    font-weight: 600;
+    text-decoration: none;
+    border: none;
+    cursor: pointer;
+    font-size: 0.95rem;
+    transition: all 0.2s;
+}
+
+.btn-primary {
+    background: var(--accent);
+    color: #0b0f19;
+}
+
+.btn-primary:hover {
+    box-shadow: 0 0 15px var(--accent-glow);
+    transform: translateY(-2px);
+}
+
+.btn-whatsapp {
+    background: #25d366;
+    color: white;
+}
+
+.btn-whatsapp:hover {
+    box-shadow: 0 0 15px rgba(37, 211, 102, 0.4);
+    transform: translateY(-2px);
+}
+
+/* Lightbox See Also Section */
+.see-also-section {
+    border-top: 1px solid var(--card-border);
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+}
+
+.see-also-title {
+    font-family: 'Outfit', sans-serif;
+    font-size: 1.1rem;
+    font-weight: 700;
+    margin-bottom: 1rem;
+    color: var(--text-secondary);
+}
+
+.see-also-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1rem;
+}
+
+
+
+/* Admin Styles (Placeholder - detailed styling loaded in admin.css) */
+.admin-navbar {
+    display: none;
+}
+
+/* Secret footer login trigger */
+.secret-trigger {
+    text-align: center;
+    padding: 2rem 0;
+    color: color-mix(in srgb, var(--text-primary) 30%, transparent);
+    /* Transparent variant of text-primary */
+    font-size: 0.75rem;
+    cursor: default;
+    user-select: none;
+}
+
+.secret-trigger:hover {
+    color: color-mix(in srgb, var(--text-primary) 70%, transparent);
+}
+
+/* Utilities */
+.text-center {
+    text-align: center;
+}
+
+.text-muted {
+    color: var(--text-secondary);
+}
+
+.mt-4 {
+    margin-top: 1.5rem;
+}
+
+.small {
+    font-size: 0.8rem;
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+    .main-title {
+        font-size: 2rem;
+    }
+
+    .tiles-grid {
+        grid-template-columns: 1fr;
+        /* Single column on mobile */
+    }
+
+    .tile {
+        aspect-ratio: auto;
+        min-height: 150px;
+    }
+
+    .action-buttons-container {
+        flex-direction: column;
+    }
+
+    .form-row {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* High readability elements for hero and footer text against custom wallpaper contrast */
+
+/* Tabbed controls loaded in admin.css */
+
+/* Responsive Lightbox Dialog */
+@media (max-width: 768px) {
+    #detailsDialog {
+        width: 95%;
+        max-width: 680px;
+    }
+    #detailsDialog .dialog-container {
+        max-height: 94dvh;
+    }
+}
+
+@media (max-width: 479.98px) {
+    #detailsDialog {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        max-width: 100vw;
+        height: 100%;
+        height: 100dvh;
+        max-height: 100dvh;
+        margin: 0;
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+        transform: scale(0.98);
+    }
+    
+    #detailsDialog[open] {
+        transform: scale(1);
+    }
+
+    #detailsDialog .dialog-container {
+        height: 100%;
+        max-height: 100dvh;
+    }
+    
+    #detailsDialog .dialog-header-bar {
+        padding: 1rem 1.25rem;
+    }
+    
+    #detailsDialog .dialog-body {
+        padding: 1.25rem;
+    }
+}
+
+/* Language Dropdown */
+.lang-dropdown {
+    position: relative;
+    display: inline-block;
+}
+
+#langTriggerBtn {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    height: 40px;
+    padding: 0 0.85rem;
+    box-sizing: border-box;
+}
+
+.dropdown-menu {
+    visibility: hidden;
+    opacity: 0;
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 0.5rem;
+    background: var(--dialog-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 8px;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+    min-width: 120px;
+    z-index: 100;
+    overflow: hidden;
+    transform: translateY(-10px);
+    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s;
+}
+
+/* Hover or active class shows dropdown */
+.lang-dropdown:hover .dropdown-menu,
+.lang-dropdown.active .dropdown-menu {
+    visibility: visible;
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.dropdown-item {
+    display: block;
+    padding: 0.6rem 1rem;
+    color: var(--text-primary);
+    text-decoration: none;
+    font-size: 0.85rem;
+    transition: background 0.2s, color 0.2s;
+    text-align: left;
+    border: none;
+    background: transparent;
+    width: 100%;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+.dropdown-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--accent);
+}
+
+.dropdown-item.active {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--accent);
+    font-weight: 600;
+}
