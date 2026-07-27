@@ -113,8 +113,8 @@ function search_tiles($pref_lang, $query_string = null, $offset = 0, $limit = 20
                 FROM tiles
                 WHERE (visible = true OR :show_invisible = true)
             )
-            SELECT id, name, language, category_tags, title, html_content, 
-                   high_level_summary, link, reference_type, content_file, 
+            SELECT id, name, language, tags, title, html_teaser, 
+                   summary, link, type, content_file, 
                    visible, accent_color, background, created_at, updated_at, distance
             FROM resolved_tiles 
             WHERE rn = 1 
@@ -147,8 +147,8 @@ function search_tiles($pref_lang, $query_string = null, $offset = 0, $limit = 20
                 FROM tiles
                 WHERE (visible = true OR :show_invisible = true)
             )
-            SELECT id, name, language, category_tags, title, html_content, 
-                   high_level_summary, link, reference_type, content_file, 
+            SELECT id, name, language, tags, title, html_teaser, 
+                   summary, link, type, content_file, 
                    visible, accent_color, background, created_at, updated_at, sort_order
             FROM resolved_tiles 
             WHERE rn = 1 
@@ -168,9 +168,18 @@ function search_tiles($pref_lang, $query_string = null, $offset = 0, $limit = 20
 }
 
 // Find similar tiles for the "See Also" section (language-resolved)
-function get_similar_tiles($name, $pref_lang, $limit = 3) {
+function get_similar_tiles($name, $pref_lang, $limit = 3, $offset = 0) {
     $db = get_db_connection();
     $fallback_lang = ($pref_lang === 'de') ? 'en' : 'de';
+    $db_limit = ($limit <= 0) ? 999999 : (int)$limit;
+
+    $show_invisible = false;
+    if (session_status() === PHP_SESSION_NONE) {
+        session_start();
+    }
+    if (!empty($_SESSION['admin_logged_in'])) {
+        $show_invisible = true;
+    }
 
     $sql = "
         WITH source_tile AS (
@@ -192,22 +201,24 @@ function get_similar_tiles($name, $pref_lang, $limit = 3) {
                            END
                    ) as rn
             FROM tiles
-            WHERE visible = true AND name != :name
+            WHERE (visible = true OR :show_invisible = true) AND name != :name
         )
-        SELECT id, name, language, category_tags, title, html_content, 
-               high_level_summary, link, reference_type, content_file, 
+        SELECT id, name, language, tags, title, html_teaser, 
+               summary, link, type, content_file, 
                visible, accent_color, background, created_at, updated_at, distance
         FROM resolved_tiles 
         WHERE rn = 1 AND (SELECT embedding FROM source_tile) IS NOT NULL
         ORDER BY distance ASC 
-        LIMIT :limit
+        LIMIT :limit OFFSET :offset
     ";
 
     $stmt = $db->prepare($sql);
     $stmt->bindValue(':name', $name, PDO::PARAM_STR);
     $stmt->bindValue(':pref_lang', $pref_lang, PDO::PARAM_STR);
     $stmt->bindValue(':fallback_lang', $fallback_lang, PDO::PARAM_STR);
-    $stmt->bindValue(':limit', (int)$limit, PDO::PARAM_INT);
+    $stmt->bindValue(':show_invisible', $show_invisible, PDO::PARAM_BOOL);
+    $stmt->bindValue(':limit', (int)$db_limit, PDO::PARAM_INT);
+    $stmt->bindValue(':offset', (int)$offset, PDO::PARAM_INT);
     $stmt->execute();
     return $stmt->fetchAll();
 }

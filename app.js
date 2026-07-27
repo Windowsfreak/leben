@@ -315,7 +315,7 @@ function createTileElement(tile, isMini = false) {
     
     const contentWrapper = document.createElement('div');
     contentWrapper.className = 'tile-content';
-    contentWrapper.innerHTML = tile.html_content;
+    contentWrapper.innerHTML = tile.html_teaser || '';
     tileDiv.appendChild(contentWrapper);
     
     // Admin editing icons overlay
@@ -325,7 +325,7 @@ function createTileElement(tile, isMini = false) {
     
     // Main tile click behavior
     tileDiv.addEventListener('click', () => {
-        if (tile.reference_type === 'link') {
+        if (tile.type === 'link') {
             if (tile.link) {
                 window.open(tile.link, '_blank');
             }
@@ -529,7 +529,7 @@ function openLightbox(tile, updateHistory = true) {
                     <div class="lightbox-article">
                         <h2>${tile.title}</h2>
                         <div class="article-body">
-                            ${tile.html_content}
+                            ${tile.html_teaser || ''}
                             <p style="color:var(--danger); margin-top: 1rem;"><i class="fa-solid fa-triangle-exclamation"></i> Inhaltsdatei "${tile.content_file}" konnte nicht geladen werden.</p>
                         </div>
                     </div>
@@ -543,7 +543,7 @@ function openLightbox(tile, updateHistory = true) {
             <div class="lightbox-article">
                 <h2>${tile.title}</h2>
                 <div class="article-body">
-                    ${tile.html_content}
+                    ${tile.html_teaser || ''}
                 </div>
             </div>
         `;
@@ -593,7 +593,7 @@ function loadSimilarTiles(tileName, targetBody) {
                     cleanCard.style.setProperty('--tile-color', item.accent_color || '#fbbf24');
                     
                     cleanCard.addEventListener('click', () => {
-                        if (item.reference_type === 'link') {
+                        if (item.type === 'link') {
                             if (item.link) window.open(item.link, '_blank');
                         } else {
                             // Replace currently open lightbox tile and update URL history state

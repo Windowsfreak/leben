@@ -72,10 +72,10 @@ try {
                 }
             }
             if (empty($source_content)) {
-                $source_content = $source_tile['html_content'];
+                $source_content = $source_tile['html_teaser'];
             }
 
-            $raw_tags = trim($source_tile['category_tags'], '{}');
+            $raw_tags = trim($source_tile['tags'], '{}');
             $tags_arr = array_filter(array_map('trim', explode(',', $raw_tags)));
 
             $lang_full_name = ($target_lang === 'en') ? 'English' : 'German';
@@ -83,10 +83,10 @@ try {
 Respond ONLY with a valid JSON object (no markdown, no backticks):
 {
   \"title\": \"Translated Title\",
-  \"high_level_summary\": \"Translated summary...\",
-  \"category_tags\": [\"tag1\", \"tag2\"]
+  \"summary\": \"Translated summary...\",
+  \"tags\": [\"tag1\", \"tag2\"]
 }";
-            $meta_user = "Source Title: {$source_tile['title']}\nSource Tags: " . implode(', ', $tags_arr) . "\nSource Summary: {$source_tile['high_level_summary']}";
+            $meta_user = "Source Title: {$source_tile['title']}\nSource Tags: " . implode(', ', $tags_arr) . "\nSource Summary: {$source_tile['summary']}";
 
             $meta_response = call_llm($meta_prompt, $meta_user);
             $meta_response = trim($meta_response);
@@ -118,10 +118,10 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
                 file_put_contents($contents_dir . $target_content_file, $translated_html);
             }
 
-            $new_tags = $translated_meta['category_tags'] ?? $tags_arr;
+            $new_tags = $translated_meta['tags'] ?? $tags_arr;
             $pg_tags = '{' . implode(',', array_map('trim', $new_tags)) . '}';
 
-            $doc_text = format_tile_document_text($name, $target_lang, $new_tags, $translated_meta['high_level_summary']);
+            $doc_text = format_tile_document_text($name, $target_lang, $new_tags, $translated_meta['summary']);
             $vector_str = null;
             try {
                 $embedding = get_embedding($doc_text, 'document');
@@ -137,12 +137,12 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
             if ($existing_target) {
                 $sql = "
                     UPDATE tiles 
-                    SET category_tags = :category_tags,
+                    SET tags = :tags,
                         title = :title,
-                        html_content = :html_content,
-                        high_level_summary = :high_level_summary,
+                        html_teaser = :html_teaser,
+                        summary = :summary,
                         link = :link,
-                        reference_type = :reference_type,
+                        type = :type,
                         content_file = :content_file,
                         visible = :visible,
                         accent_color = :accent_color,
@@ -157,12 +157,12 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
             } else {
                 $sql = "
                     INSERT INTO tiles (
-                        name, language, category_tags, title, html_content,
-                        high_level_summary, link, reference_type, content_file,
+                        name, language, tags, title, html_teaser,
+                        summary, link, type, content_file,
                         visible, accent_color, background, embedding, sort_order, created_at, updated_at
                     ) VALUES (
-                        :name, :language, :category_tags, :title, :html_content,
-                        :high_level_summary, :link, :reference_type, :content_file,
+                        :name, :language, :tags, :title, :html_teaser,
+                        :summary, :link, :type, :content_file,
                         :visible, :accent_color, :background, :embedding::vector, :sort_order,
                         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                     )
@@ -172,12 +172,12 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
             }
 
             $stmt->bindValue(':name', $name, PDO::PARAM_STR);
-            $stmt->bindValue(':category_tags', $pg_tags, PDO::PARAM_STR);
+            $stmt->bindValue(':tags', $pg_tags, PDO::PARAM_STR);
             $stmt->bindValue(':title', $translated_meta['title'], PDO::PARAM_STR);
-            $stmt->bindValue(':html_content', $translated_html, PDO::PARAM_STR);
-            $stmt->bindValue(':high_level_summary', $translated_meta['high_level_summary'], PDO::PARAM_STR);
+            $stmt->bindValue(':html_teaser', $translated_html, PDO::PARAM_STR);
+            $stmt->bindValue(':summary', $translated_meta['summary'], PDO::PARAM_STR);
             $stmt->bindValue(':link', $source_tile['link'], PDO::PARAM_STR);
-            $stmt->bindValue(':reference_type', $source_tile['reference_type'], PDO::PARAM_STR);
+            $stmt->bindValue(':type', $source_tile['type'], PDO::PARAM_STR);
             $stmt->bindValue(':content_file', $target_content_file, PDO::PARAM_STR);
             $stmt->bindValue(':visible', (bool)$source_tile['visible'], PDO::PARAM_BOOL);
             $stmt->bindValue(':accent_color', $source_tile['accent_color'], PDO::PARAM_STR);
@@ -247,10 +247,10 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
             $name = trim($_POST['name'] ?? '');
             $language = trim($_POST['language'] ?? 'de');
             $title = trim($_POST['title'] ?? '');
-            $html_content = trim($_POST['html_content'] ?? '');
-            $high_level_summary = trim($_POST['high_level_summary'] ?? '');
+            $html_teaser = trim($_POST['html_teaser'] ?? '');
+            $summary = trim($_POST['summary'] ?? '');
             $link = trim($_POST['link'] ?? '');
-            $reference_type = trim($_POST['reference_type'] ?? 'doc');
+            $type = trim($_POST['type'] ?? 'doc');
             $content_file = trim($_POST['content_file'] ?? '');
             $visible = ($_POST['visible'] ?? 'true') === 'true';
             $sort_order = isset($_POST['sort_order']) ? (int)$_POST['sort_order'] : 100;
@@ -258,11 +258,11 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
             $background = trim($_POST['background'] ?? '');
             
             // Clean categories array from comma-separated list
-            $categories_input = $_POST['category_tags'] ?? '';
+            $categories_input = $_POST['tags'] ?? '';
             $tags = array_filter(array_map('trim', explode(',', $categories_input)));
             $pg_tags = '{' . implode(',', $tags) . '}';
 
-            if (empty($title) && $reference_type === 'link') {
+            if (empty($title) && $type === 'link') {
                 $title = $name;
             }
 
@@ -282,16 +282,17 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
                 if ($existing) {
                     // Compare tags cleanly (compare arrays)
                     // Postgres arrays come back as '{tag1,tag2}' or similar
-                    $existing_tags_str = trim($existing['category_tags'], '{}');
+                    $existing_tags_str = trim($existing['tags'] ?? '', '{}');
                     $existing_tags = array_filter(array_map('trim', explode(',', $existing_tags_str)));
                     sort($existing_tags);
                     $new_tags = $tags;
                     sort($new_tags);
+                    $existing_summary = $existing['summary'] ?? '';
                     
                     if (
                         $existing['name'] === $name &&
                         $existing['language'] === $language &&
-                        $existing['high_level_summary'] === $high_level_summary &&
+                        $existing_summary === $summary &&
                         $existing_tags === $new_tags
                     ) {
                         $regenerate_embedding = false;
@@ -303,7 +304,7 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
             if ($regenerate_embedding) {
                 // Query embedding from Ollama using structured text format
                 try {
-                    $doc_text = format_tile_document_text($name, $language, $tags, $high_level_summary);
+                    $doc_text = format_tile_document_text($name, $language, $tags, $summary);
                     $embedding = get_embedding($doc_text, 'document');
                     $vector_str = array_to_postgres_vector($embedding);
                 } catch (Exception $e) {
@@ -327,12 +328,12 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
                     UPDATE tiles 
                     SET name = :name, 
                         language = :language, 
-                        category_tags = :category_tags, 
+                        tags = :tags, 
                         title = :title, 
-                        html_content = :html_content, 
-                        high_level_summary = :high_level_summary, 
+                        html_teaser = :html_teaser, 
+                        summary = :summary, 
                         link = :link, 
-                        reference_type = :reference_type, 
+                        type = :type, 
                         content_file = :content_file, 
                         visible = :visible, 
                         accent_color = :accent_color,
@@ -348,12 +349,12 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
                 // Insert
                 $sql = "
                     INSERT INTO tiles (
-                        name, language, category_tags, title, html_content, 
-                        high_level_summary, link, reference_type, content_file, 
+                        name, language, tags, title, html_teaser, 
+                        summary, link, type, content_file, 
                         visible, accent_color, background, embedding, sort_order
                     ) VALUES (
-                        :name, :language, :category_tags, :title, :html_content, 
-                        :high_level_summary, :link, :reference_type, :content_file, 
+                        :name, :language, :tags, :title, :html_teaser, 
+                        :summary, :link, :type, :content_file, 
                         :visible, :accent_color, :background, :embedding::vector, :sort_order
                     )
                 ";
@@ -362,12 +363,12 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
 
             $stmt->bindValue(':name', $name, PDO::PARAM_STR);
             $stmt->bindValue(':language', $language, PDO::PARAM_STR);
-            $stmt->bindValue(':category_tags', $pg_tags, PDO::PARAM_STR);
+            $stmt->bindValue(':tags', $pg_tags, PDO::PARAM_STR);
             $stmt->bindValue(':title', $title, PDO::PARAM_STR);
-            $stmt->bindValue(':html_content', $html_content, PDO::PARAM_STR);
-            $stmt->bindValue(':high_level_summary', $high_level_summary, PDO::PARAM_STR);
+            $stmt->bindValue(':html_teaser', $html_teaser, PDO::PARAM_STR);
+            $stmt->bindValue(':summary', $summary, PDO::PARAM_STR);
             $stmt->bindValue(':link', $link ?: null, PDO::PARAM_STR);
-            $stmt->bindValue(':reference_type', $reference_type, PDO::PARAM_STR);
+            $stmt->bindValue(':type', $type, PDO::PARAM_STR);
             $stmt->bindValue(':content_file', $content_file ?: null, PDO::PARAM_STR);
             $stmt->bindValue(':visible', $visible, PDO::PARAM_BOOL);
             $stmt->bindValue(':accent_color', $accent_color, PDO::PARAM_STR);
@@ -426,14 +427,18 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
                 $counter++;
             }
 
+            $src_type = $tile['type'] ?? 'doc';
+            $src_tags = $tile['tags'] ?? '';
+            $src_summary = $tile['summary'] ?? '';
+
             $sql = "
                 INSERT INTO tiles (
-                    name, language, category_tags, title, html_content, 
-                    high_level_summary, link, reference_type, content_file, 
+                    name, language, tags, title, html_teaser, 
+                    summary, link, type, content_file, 
                     visible, accent_color, background, embedding, sort_order
                 ) VALUES (
-                    :name, :language, :category_tags, :title, :html_content, 
-                    :high_level_summary, :link, :reference_type, :content_file, 
+                    :name, :language, :tags, :title, :html_teaser, 
+                    :summary, :link, :type, :content_file, 
                     :visible, :accent_color, :background, :embedding::vector, :sort_order
                 )
             ";
@@ -441,12 +446,12 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
             $insert = $db->prepare($sql);
             $insert->bindValue(':name', $clone_name, PDO::PARAM_STR);
             $insert->bindValue(':language', $tile['language'], PDO::PARAM_STR);
-            $insert->bindValue(':category_tags', $tile['category_tags'], PDO::PARAM_STR);
+            $insert->bindValue(':tags', $src_tags, PDO::PARAM_STR);
             $insert->bindValue(':title', $clone_title, PDO::PARAM_STR);
-            $insert->bindValue(':html_content', $tile['html_content'], PDO::PARAM_STR);
-            $insert->bindValue(':high_level_summary', $tile['high_level_summary'], PDO::PARAM_STR);
+            $insert->bindValue(':html_teaser', $tile['html_teaser'], PDO::PARAM_STR);
+            $insert->bindValue(':summary', $src_summary, PDO::PARAM_STR);
             $insert->bindValue(':link', $tile['link'], PDO::PARAM_STR);
-            $insert->bindValue(':reference_type', $tile['reference_type'], PDO::PARAM_STR);
+            $insert->bindValue(':type', $src_type, PDO::PARAM_STR);
             $insert->bindValue(':content_file', $tile['content_file'], PDO::PARAM_STR);
             $insert->bindValue(':visible', false, PDO::PARAM_BOOL); // Set cloned copy to invisible by default
             $insert->bindValue(':accent_color', $tile['accent_color'], PDO::PARAM_STR);
@@ -479,7 +484,7 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
 
         case 'refresh_vectors':
             // Fetch all tiles
-            $stmt = $db->prepare("SELECT id, name, language, category_tags, high_level_summary FROM tiles");
+            $stmt = $db->prepare("SELECT id, name, language, tags, summary FROM tiles");
             $stmt->execute();
             $tiles = $stmt->fetchAll();
 
@@ -488,11 +493,13 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
 
             foreach ($tiles as $tile) {
                 // Parse tags
-                $raw_tags = trim($tile['category_tags'], '{}');
+                $t_tags = $tile['tags'] ?? '';
+                $raw_tags = trim((string)$t_tags, '{}');
                 $tags_arr = array_filter(array_map('trim', explode(',', $raw_tags)));
+                $t_summary = $tile['summary'] ?? '';
                 
                 // Format doc text using structured template
-                $doc_text = format_tile_document_text($tile['name'], $tile['language'], $tags_arr, $tile['high_level_summary']);
+                $doc_text = format_tile_document_text($tile['name'], $tile['language'], $tags_arr, $t_summary);
                 
                 // Embed via Ollama
                 $embedding = get_embedding($doc_text, 'document');
@@ -540,12 +547,12 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
 
         case 'save_tile_html':
             $id = isset($_POST['id']) ? (int)$_POST['id'] : null;
-            $html_content = $_POST['html_content'] ?? '';
+            $html_teaser = $_POST['html_teaser'] ?? '';
             if (!$id) {
                 throw new Exception("Tile ID is required.");
             }
-            $stmt = $db->prepare("UPDATE tiles SET html_content = :html_content, updated_at = CURRENT_TIMESTAMP WHERE id = :id");
-            $stmt->execute([':html_content' => $html_content, ':id' => $id]);
+            $stmt = $db->prepare("UPDATE tiles SET html_teaser = :html_teaser, updated_at = CURRENT_TIMESTAMP WHERE id = :id");
+            $stmt->execute([':html_teaser' => $html_teaser, ':id' => $id]);
             echo json_encode(['status' => 'success', 'message' => 'Tile HTML updated successfully.']);
             break;
 
@@ -554,7 +561,7 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
             $language = trim($_POST['language'] ?? 'de');
             $title = trim($_POST['title'] ?? '');
             $content_file = trim($_POST['content_file'] ?? '');
-            $html_content = trim($_POST['html_content'] ?? '');
+            $html_teaser = trim($_POST['html_teaser'] ?? '');
 
             if (empty($name) || empty($title)) {
                 throw new Exception("Name and title are required for suggestions.");
@@ -571,7 +578,7 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
                 }
             }
             if (empty($content)) {
-                $content = $html_content;
+                $content = $html_teaser;
             }
 
             $plain_text = strip_tags($content);
@@ -612,14 +619,14 @@ Respond ONLY with a valid JSON object matching the following structure (no markd
 
         case 'edit_html_with_llm':
             $prompt = trim($_POST['prompt'] ?? '');
-            $html_content = $_POST['html_content'] ?? '';
+            $html_teaser = $_POST['html_teaser'] ?? '';
 
             if (empty($prompt)) {
                 throw new Exception("Prompt instruction is required.");
             }
 
             $system_prompt = "You are an expert HTML editor assistant. Follow the user's instructions to modify or transform the provided HTML document. Respond ONLY with the modified HTML document. Do not include markdown code block formatting (no backticks like ```html), explanations, or any extra text.";
-            $user_content = "Instruction: $prompt\n\nHTML Document:\n$html_content";
+            $user_content = "Instruction: $prompt\n\nHTML Document:\n$html_teaser";
 
             $llm_response = call_llm($system_prompt, $user_content);
             $llm_response = trim($llm_response);
@@ -630,7 +637,7 @@ Respond ONLY with a valid JSON object matching the following structure (no markd
 
             echo json_encode([
                 'status' => 'success',
-                'html_content' => $llm_response
+                'html_teaser' => $llm_response
             ]);
             break;
 

@@ -6,7 +6,8 @@
 
 ### Query Parameters with default values
 - q="": Vector search query string (examples: 'contact', 'vision', 'sport', 'finance', '2025 piano concert')
-  - NOTE: Omitting q or passing &q= lists all cards in curated order
+- name="": Alternative parameter for card similarity search (e.g. name=finance returns cards semantically similar to 'finance')
+- Omitting q and name lists all cards in curated order
 - skip=0: Number of cards to skip for pagination
 - limit=20: Number of cards to return
 - lang=en: Language preference (e.g. 'de')
@@ -28,6 +29,7 @@
 
 ### Example API Queries
 - Vector Search: /llm.php?q=finance+investments&limit=3&lang=de
+- Similarity Search by Card: /llm.php?name=finance&limit=3&lang=de
 - Explore All Cards: /llm.php?limit=0&format=min&lang=en
 - Full document: /llm.php?q=vision&limit=1&format=full&crop=4000&lang=en
 

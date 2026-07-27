@@ -22,6 +22,100 @@ try {
     $db = get_db_connection();
 
     switch ($action) {
+        case 'create':
+            $name = trim($_POST['name'] ?? $_GET['name'] ?? '');
+            $language = strtolower(trim($_POST['language'] ?? $_GET['language'] ?? 'de'));
+            $title = trim($_POST['title'] ?? $_GET['title'] ?? '');
+            $summary = trim($_POST['summary'] ?? $_GET['summary'] ?? '');
+            $html_teaser = trim($_POST['html_teaser'] ?? $_GET['html_teaser'] ?? '');
+            $content_file = trim($_POST['content_file'] ?? $_GET['content_file'] ?? '');
+            $link = trim($_POST['link'] ?? $_GET['link'] ?? '');
+            $type = trim($_POST['type'] ?? $_GET['type'] ?? 'doc');
+            $accent_color = trim($_POST['accent_color'] ?? $_GET['accent_color'] ?? '#fbbf24');
+            $background = trim($_POST['background'] ?? $_GET['background'] ?? '');
+            $visible = isset($_POST['visible']) ? ($_POST['visible'] === 'true' || $_POST['visible'] === true || $_POST['visible'] === '1') : true;
+            $sort_order = isset($_POST['sort_order']) ? (int)$_POST['sort_order'] : 100;
+
+            $raw_tags = $_POST['tags'] ?? $_GET['tags'] ?? '';
+            if (is_array($raw_tags)) {
+                $tags_arr = $raw_tags;
+            } else {
+                $tags_arr = array_filter(array_map('trim', explode(',', (string)$raw_tags)));
+            }
+            $pg_tags = '{' . implode(',', $tags_arr) . '}';
+
+            if (empty($name) || empty($title)) {
+                throw new Exception("Name and title are required to create a card.");
+            }
+
+            $check = $db->prepare("SELECT id FROM tiles WHERE name = :name AND language = :language");
+            $check->execute([':name' => $name, ':language' => $language]);
+            if ($check->fetch()) {
+                throw new Exception("Card '{$name}' with language '{$language}' already exists.");
+            }
+
+            $doc_text = format_tile_document_text($name, $language, $tags_arr, $summary);
+            $vector_str = null;
+            try {
+                $embedding = get_embedding($doc_text, 'document');
+                $vector_str = array_to_postgres_vector($embedding);
+            } catch (Exception $e) {
+                $vector_str = array_to_postgres_vector(array_fill(0, 768, 0.0));
+                error_log("LLM Admin Create embedding fallback: " . $e->getMessage());
+            }
+
+            if (!empty($content_file) && !empty($html_teaser)) {
+                if (preg_match('/^[a-zA-Z0-9_\-\.]+\.html$/', $content_file)) {
+                    $contents_dir = __DIR__ . '/contents/';
+                    file_put_contents($contents_dir . $content_file, $html_teaser);
+                }
+            }
+
+            $sql = "
+                INSERT INTO tiles (
+                    name, language, tags, title, html_teaser,
+                    summary, link, type, content_file,
+                    visible, accent_color, background, embedding, sort_order, created_at, updated_at
+                ) VALUES (
+                    :name, :language, :tags, :title, :html_teaser,
+                    :summary, :link, :type, :content_file,
+                    :visible, :accent_color, :background, :embedding::vector, :sort_order,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                ) RETURNING id
+            ";
+            $stmt = $db->prepare($sql);
+            $stmt->bindValue(':name', $name, PDO::PARAM_STR);
+            $stmt->bindValue(':language', $language, PDO::PARAM_STR);
+            $stmt->bindValue(':tags', $pg_tags, PDO::PARAM_STR);
+            $stmt->bindValue(':title', $title, PDO::PARAM_STR);
+            $stmt->bindValue(':html_teaser', $html_teaser, PDO::PARAM_STR);
+            $stmt->bindValue(':summary', $summary, PDO::PARAM_STR);
+            $stmt->bindValue(':link', $link ?: null, PDO::PARAM_STR);
+            $stmt->bindValue(':type', $type, PDO::PARAM_STR);
+            $stmt->bindValue(':content_file', $content_file ?: null, PDO::PARAM_STR);
+            $stmt->bindValue(':visible', $visible, PDO::PARAM_BOOL);
+            $stmt->bindValue(':accent_color', $accent_color, PDO::PARAM_STR);
+            $stmt->bindValue(':background', $background ?: null, PDO::PARAM_STR);
+            $stmt->bindValue(':embedding', $vector_str, PDO::PARAM_STR);
+            $stmt->bindValue(':sort_order', $sort_order, PDO::PARAM_INT);
+            $stmt->execute();
+            $new_id = $stmt->fetchColumn();
+
+            echo json_encode([
+                'status' => 'success',
+                'message' => "Successfully created master tile '{$name}' ({$language}).",
+                'data' => [
+                    'id' => (int)$new_id,
+                    'name' => $name,
+                    'language' => $language,
+                    'title' => $title,
+                    'tags' => $tags_arr,
+                    'summary' => $summary,
+                    'content_file' => $content_file
+                ]
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+            break;
+
         case 'status':
             $tile_name = $_GET['name'] ?? $_POST['name'] ?? null;
             $matrix = get_translation_status($tile_name);
@@ -64,12 +158,14 @@ try {
                 }
             }
             if (empty($source_content)) {
-                $source_content = $source_tile['html_content'];
+                $source_content = $source_tile['html_teaser'];
             }
 
             // Clean tags string to array
-            $raw_tags = trim($source_tile['category_tags'], '{}');
+            $src_tags = $source_tile['tags'] ?? '';
+            $raw_tags = trim((string)$src_tags, '{}');
             $tags_arr = array_filter(array_map('trim', explode(',', $raw_tags)));
+            $src_summary = $source_tile['summary'] ?? '';
 
             // 1. LLM Prompt to translate card metadata
             $lang_full_name = ($target_lang === 'en') ? 'English' : 'German';
@@ -78,10 +174,10 @@ Maintain the same tone, professional vocabulary, and theme.
 Respond ONLY with a valid JSON object matching this structure (no markdown formatting, no backticks, no extra text):
 {
   \"title\": \"Translated Title\",
-  \"high_level_summary\": \"Translated high-level summary (up to 400 words)...\",
-  \"category_tags\": [\"tag1\", \"tag2\", \"tag3\"]
+  \"summary\": \"Translated summary (up to 400 words)...\",
+  \"tags\": [\"tag1\", \"tag2\", \"tag3\"]
 }";
-            $meta_user = "Source Title: {$source_tile['title']}\nSource Tags: " . implode(', ', $tags_arr) . "\nSource Summary: {$source_tile['high_level_summary']}";
+            $meta_user = "Source Title: {$source_tile['title']}\nSource Tags: " . implode(', ', $tags_arr) . "\nSource Summary: {$src_summary}";
 
             $meta_response = call_llm($meta_prompt, $meta_user);
             $meta_response = trim($meta_response);
@@ -117,11 +213,12 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
             }
 
             // Clean tags to PostgreSQL vector tag literal
-            $new_tags = $translated_meta['category_tags'] ?? $tags_arr;
+            $new_tags = $translated_meta['tags'] ?? $tags_arr;
+            $new_summary = $translated_meta['summary'] ?? $src_summary;
             $pg_tags = '{' . implode(',', array_map('trim', $new_tags)) . '}';
 
             // 3. Generate Vector Embedding for translated card
-            $doc_text = format_tile_document_text($name, $target_lang, $new_tags, $translated_meta['high_level_summary']);
+            $doc_text = format_tile_document_text($name, $target_lang, $new_tags, $new_summary);
             $vector_str = null;
             try {
                 $embedding = get_embedding($doc_text, 'document');
@@ -136,16 +233,18 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
             $check_stmt->execute([':name' => $name, ':target_lang' => $target_lang]);
             $existing_target = $check_stmt->fetch();
 
+            $src_type = $source_tile['type'] ?? 'doc';
+
             if ($existing_target) {
                 // Update target row
                 $sql = "
                     UPDATE tiles 
-                    SET category_tags = :category_tags,
+                    SET tags = :tags,
                         title = :title,
-                        html_content = :html_content,
-                        high_level_summary = :high_level_summary,
+                        html_teaser = :html_teaser,
+                        summary = :summary,
                         link = :link,
-                        reference_type = :reference_type,
+                        type = :type,
                         content_file = :content_file,
                         visible = :visible,
                         accent_color = :accent_color,
@@ -161,12 +260,12 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
                 // Insert new target language row
                 $sql = "
                     INSERT INTO tiles (
-                        name, language, category_tags, title, html_content,
-                        high_level_summary, link, reference_type, content_file,
+                        name, language, tags, title, html_teaser,
+                        summary, link, type, content_file,
                         visible, accent_color, background, embedding, sort_order, created_at, updated_at
                     ) VALUES (
-                        :name, :language, :category_tags, :title, :html_content,
-                        :high_level_summary, :link, :reference_type, :content_file,
+                        :name, :language, :tags, :title, :html_teaser,
+                        :summary, :link, :type, :content_file,
                         :visible, :accent_color, :background, :embedding::vector, :sort_order,
                         CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                     )
@@ -176,12 +275,12 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
             }
 
             $stmt->bindValue(':name', $name, PDO::PARAM_STR);
-            $stmt->bindValue(':category_tags', $pg_tags, PDO::PARAM_STR);
+            $stmt->bindValue(':tags', $pg_tags, PDO::PARAM_STR);
             $stmt->bindValue(':title', $translated_meta['title'], PDO::PARAM_STR);
-            $stmt->bindValue(':html_content', $translated_html, PDO::PARAM_STR);
-            $stmt->bindValue(':high_level_summary', $translated_meta['high_level_summary'], PDO::PARAM_STR);
+            $stmt->bindValue(':html_teaser', $translated_html, PDO::PARAM_STR);
+            $stmt->bindValue(':summary', $new_summary, PDO::PARAM_STR);
             $stmt->bindValue(':link', $source_tile['link'], PDO::PARAM_STR);
-            $stmt->bindValue(':reference_type', $source_tile['reference_type'], PDO::PARAM_STR);
+            $stmt->bindValue(':type', $src_type, PDO::PARAM_STR);
             $stmt->bindValue(':content_file', $target_content_file, PDO::PARAM_STR);
             $stmt->bindValue(':visible', (bool)$source_tile['visible'], PDO::PARAM_BOOL);
             $stmt->bindValue(':accent_color', $source_tile['accent_color'], PDO::PARAM_STR);
@@ -198,7 +297,7 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
                     'source_language' => $source_lang,
                     'target_language' => $target_lang,
                     'title' => $translated_meta['title'],
-                    'summary' => $translated_meta['high_level_summary'],
+                    'summary' => $translated_meta['summary'],
                     'tags' => $new_tags,
                     'content_file' => $target_content_file
                 ]

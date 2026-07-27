@@ -3,6 +3,7 @@
 require_once __DIR__ . '/lib.php';
 
 $q = trim($_GET['q'] ?? $_POST['q'] ?? '');
+$name_param = trim($_GET['name'] ?? $_POST['name'] ?? '');
 $skip = isset($_GET['skip']) ? max(0, (int)$_GET['skip']) : (isset($_POST['skip']) ? max(0, (int)$_POST['skip']) : 0);
 
 // Default limit is 20. If explicitly set to 0, returns all cards without limit.
@@ -28,8 +29,12 @@ $output_mode = strtolower(trim($_GET['output'] ?? $_POST['output'] ?? 'toon'));
 $want_json = ($output_mode === 'json') || !empty($_GET['json']) || !empty($_POST['json']);
 
 try {
-    // Perform language-resolved vector search or curated list query
-    $tiles = search_tiles($lang, $q, $skip, $limit);
+    // Perform language-resolved vector search, similarity search, or curated list query
+    if (!empty($name_param) && empty($q)) {
+        $tiles = get_similar_tiles($name_param, $lang, $limit, $skip);
+    } else {
+        $tiles = search_tiles($lang, $q, $skip, $limit);
+    }
     
     $items = [];
     $contents_dir = __DIR__ . '/contents/';
@@ -38,14 +43,15 @@ try {
         $name = $tile['name'];
         $tile_lang = $tile['language'];
         
-        // Clean category tags
-        $raw_tags = is_array($tile['category_tags']) ? $tile['category_tags'] : explode(',', trim((string)$tile['category_tags'], '{}'));
+        // Clean tags
+        $tile_tags = $tile['tags'] ?? '';
+        $raw_tags = is_array($tile_tags) ? $tile_tags : explode(',', trim((string)$tile_tags, '{}'));
         $tags_clean = implode(', ', array_filter(array_map('trim', $raw_tags)));
 
-        // Score calculation: Similarity score is ONLY included when search query q is non-empty
+        // Score calculation: Similarity score is included when search query q or name is provided
         $has_score = false;
         $score = null;
-        if (!empty($q) && isset($tile['distance'])) {
+        if ((!empty($q) || !empty($name_param)) && isset($tile['distance'])) {
             $dist = (float)$tile['distance'];
             $sim = max(0.0, min(1.0, 1.0 - $dist));
             $score = sprintf('%.2f', $sim);
@@ -53,20 +59,21 @@ try {
         }
 
         // Determine type: 'doc(size)' or 'link' (link has no size)
+        $ref_type = $tile['type'] ?? 'doc';
         $type_str = 'doc';
-        if ($tile['reference_type'] === 'link' || (!empty($tile['link']) && empty($tile['content_file']))) {
+        if ($ref_type === 'link' || (!empty($tile['link']) && empty($tile['content_file']))) {
             $type_str = "link";
         } else if (!empty($tile['content_file'])) {
             $fpath = $contents_dir . $tile['content_file'];
-            $size_bytes = file_exists($fpath) ? filesize($fpath) : strlen($tile['html_content']);
+            $size_bytes = file_exists($fpath) ? filesize($fpath) : strlen($tile['html_teaser']);
             $type_str = "doc({$size_bytes}b)";
         } else {
-            $size_bytes = strlen($tile['html_content']);
+            $size_bytes = strlen($tile['html_teaser']);
             $type_str = "doc({$size_bytes}b)";
         }
 
         $date_str = date('Y-m-d', strtotime($tile['updated_at'] ?? $tile['created_at']));
-        $summary = $tile['high_level_summary'] ?? '';
+        $summary = $tile['summary'] ?? '';
 
         // Prepare content resolution for 'full'
         $full_body = '';
@@ -76,7 +83,7 @@ try {
             } else if (!empty($tile['link'])) {
                 $full_body = "Link URL: " . $tile['link'];
             } else {
-                $full_body = $tile['html_content'];
+                $full_body = $tile['html_teaser'];
             }
         }
 
@@ -122,7 +129,7 @@ try {
         header('X-LLM-Format: JSON');
         echo json_encode([
             'status' => 'success',
-            'query' => $q,
+            'query' => $q ?: ($name_param ? "similarity:{$name_param}" : null),
             'lang' => $lang,
             'format' => $format,
             'skip' => $skip,
@@ -136,8 +143,9 @@ try {
     // TOON (Token-Oriented Object Notation) Output
     header('Content-Type: text/plain; charset=utf-8');
     header('X-LLM-Format: TOON');
+    $query_label = $q ? "'{$q}'" : ($name_param ? "[Similarity: '{$name_param}']" : "[Curated List]");
     echo "# Leben App LLM Search Results\n";
-    echo "# Query: " . ($q ? "'{$q}'" : "[Curated List]") . " | Lang: {$lang} | Format: {$format} | Total: " . count($items) . "\n\n";
+    echo "# Query: {$query_label} | Lang: {$lang} | Format: {$format} | Total: " . count($items) . "\n\n";
 
     foreach ($items as $item) {
         if (isset($item['score'])) {

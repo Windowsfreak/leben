@@ -97,15 +97,15 @@ function openEditor(tile = null) {
         document.getElementById('editTitle').value = tile.title;
         
         // Clean Postgres array tag format '{tag1,tag2}' to 'tag1, tag2'
-        const rawTags = tile.category_tags || '';
+        const rawTags = tile.tags || '';
         const tagsClean = rawTags.replace(/[\{\}]/g, '');
         document.getElementById('editCategoryTags').value = tagsClean;
         
-        document.getElementById('editSummary').value = tile.high_level_summary;
-        document.getElementById('editReferenceType').value = tile.reference_type;
+        document.getElementById('editSummary').value = tile.summary || '';
+        document.getElementById('editReferenceType').value = tile.type || 'doc';
         document.getElementById('editLink').value = tile.link || '';
         document.getElementById('editContentFile').value = tile.content_file || '';
-        document.getElementById('editHtmlContent').value = tile.html_content;
+        document.getElementById('editHtmlContent').value = tile.html_teaser || '';
         document.getElementById('editVisible').checked = tile.visible;
         document.getElementById('editSortOrder').value = tile.sort_order || 100;
         document.getElementById('editBackground').value = tile.background || '';
@@ -115,7 +115,7 @@ function openEditor(tile = null) {
         document.getElementById('editAccentColor').value = color;
         document.getElementById('editAccentColorPicker').value = color;
         
-        htmlContent = tile.html_content;
+        htmlContent = tile.html_teaser || '';
      } else {
         document.getElementById('editorDialogTitle').textContent = "Neue Kachel erstellen";
         document.getElementById('editId').value = '';
@@ -357,12 +357,12 @@ function saveTile() {
     formData.append('name', document.getElementById('editName').value);
     formData.append('language', document.getElementById('editLanguage').value);
     formData.append('title', document.getElementById('editTitle').value);
-    formData.append('category_tags', document.getElementById('editCategoryTags').value);
-    formData.append('high_level_summary', document.getElementById('editSummary').value);
-    formData.append('reference_type', document.getElementById('editReferenceType').value);
+    formData.append('tags', document.getElementById('editCategoryTags').value);
+    formData.append('summary', document.getElementById('editSummary').value);
+    formData.append('type', document.getElementById('editReferenceType').value);
     formData.append('link', document.getElementById('editLink').value);
     formData.append('content_file', document.getElementById('editContentFile').value);
-    formData.append('html_content', htmlContent);
+    formData.append('html_teaser', htmlContent);
     formData.append('visible', document.getElementById('editVisible').checked ? 'true' : 'false');
     formData.append('sort_order', document.getElementById('editSortOrder').value);
     formData.append('accent_color', document.getElementById('editAccentColor').value);
@@ -786,7 +786,7 @@ function initAdmin() {
         
         const formData = new FormData();
         formData.append('prompt', promptText);
-        formData.append('html_content', currentHtml);
+        formData.append('html_teaser', currentHtml);
         
         fetch('admin.php?action=edit_html_with_llm', {
             method: 'POST',
@@ -800,16 +800,16 @@ function initAdmin() {
             if (res.status === 'success') {
                 if (currentActiveEditor === 'tile') {
                     if (monacoHtmlEditorInstance && monacoLoaded) {
-                        monacoHtmlEditorInstance.setValue(res.html_content);
+                        monacoHtmlEditorInstance.setValue(res.html_teaser || '');
                     } else {
-                        document.getElementById('editHtmlContent').value = res.html_content;
+                        document.getElementById('editHtmlContent').value = res.html_teaser || '';
                     }
                     updateLivePreview();
                 } else if (currentActiveEditor === 'lightbox') {
                     if (monacoLightboxEditorInstance && monacoLoaded) {
-                        monacoLightboxEditorInstance.setValue(res.html_content);
+                        monacoLightboxEditorInstance.setValue(res.html_teaser || '');
                     } else {
-                        document.getElementById('editLightboxHtmlContent').value = res.html_content;
+                        document.getElementById('editLightboxHtmlContent').value = res.html_teaser || '';
                     }
                 }
                 document.getElementById('llmPromptDialog').close();
@@ -851,7 +851,7 @@ function initAdmin() {
         formData.append('language', document.getElementById('editLanguage').value.trim());
         formData.append('title', title);
         formData.append('content_file', contentFile);
-        formData.append('html_content', htmlContent);
+        formData.append('html_teaser', htmlContent);
         
         fetch('admin.php?action=suggest_meta', {
             method: 'POST',
@@ -1102,7 +1102,7 @@ function openLightboxEditor(tile) {
                 throw new Error(res.message);
             });
     } else {
-        contentPromise = Promise.resolve(tile.html_content || '');
+        contentPromise = Promise.resolve(tile.html_teaser || '');
     }
     
     contentPromise.then(html => {
@@ -1158,7 +1158,7 @@ function saveLightboxEditor() {
     } else {
         url = 'admin.php?action=save_tile_html';
         formData.append('id', id);
-        formData.append('html_content', htmlContent);
+        formData.append('html_teaser', htmlContent);
     }
     
     fetch(url, {
