@@ -317,31 +317,38 @@ body.has-wallpaper::before {
     color: var(--link-hover, var(--link-color));
 }
 
-/* Tile Base Theme Overrides (Dark / Light contrast modes) */
+/* Tile Base Theme Overrides (Dark / Light contrast modes & image backgrounds) */
+.tile[class*="theme-"] {
+    --text-secondary: color-mix(in srgb, var(--text-primary) 90%, transparent);
+    --grey: color-mix(in srgb, var(--text-primary) 80%, transparent);
+}
+
 .tile.theme-dark {
-    --text-primary: #f8fafc;
-    --text-secondary: #cbd5e1;
+    --text-primary: #ffffff;
+    --text-secondary: rgba(255, 255, 255, 0.90);
     --link-color: #60a5fa;
     --link-hover: #93c5fd;
     --red: #f87171;
     --green: #4ade80;
     --blue: #60a5fa;
     --yellow: #facc15;
-    --grey: #cbd5e1;
+    --grey: rgba(255, 255, 255, 0.80);
     --white: #ffffff;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
 .tile.theme-light {
-    --text-primary: #0f172a;
-    --text-secondary: #475569;
-    --link-color: #2563eb;
-    --link-hover: #1d4ed8;
+    --text-primary: #000000;
+    --text-secondary: rgba(0, 0, 0, 0.90);
+    --link-color: #1d4ed8;
+    --link-hover: #1e40af;
     --red: #dc2626;
     --green: #15803d;
     --blue: #1d4ed8;
     --yellow: #a16207;
-    --grey: #475569;
-    --white: #0f172a;
+    --grey: rgba(0, 0, 0, 0.80);
+    --white: #000000;
+    text-shadow: 0 1px 3px rgba(255, 255, 255, 0.4);
 }
 
 /* Color Modifier Classes (override specific shorthand color & contrasting links) */
