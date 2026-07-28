@@ -34,6 +34,7 @@ try {
             $accent_color = trim($_POST['accent_color'] ?? $_GET['accent_color'] ?? '#fbbf24');
             $background = trim($_POST['background'] ?? $_GET['background'] ?? '');
             $visible = isset($_POST['visible']) ? ($_POST['visible'] === 'true' || $_POST['visible'] === true || $_POST['visible'] === '1') : true;
+            $secret = trim($_POST['secret'] ?? $_GET['secret'] ?? '');
             $sort_order = isset($_POST['sort_order']) ? (int)$_POST['sort_order'] : 100;
 
             $raw_tags = $_POST['tags'] ?? $_GET['tags'] ?? '';
@@ -75,11 +76,11 @@ try {
                 INSERT INTO tiles (
                     name, language, tags, title, html_teaser,
                     summary, link, type, content_file,
-                    visible, accent_color, background, embedding, sort_order, created_at, updated_at
+                    visible, secret, accent_color, background, embedding, sort_order, created_at, updated_at
                 ) VALUES (
                     :name, :language, :tags, :title, :html_teaser,
                     :summary, :link, :type, :content_file,
-                    :visible, :accent_color, :background, :embedding::vector, :sort_order,
+                    :visible, :secret, :accent_color, :background, :embedding::vector, :sort_order,
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 ) RETURNING id
             ";
@@ -94,6 +95,7 @@ try {
             $stmt->bindValue(':type', $type, PDO::PARAM_STR);
             $stmt->bindValue(':content_file', $content_file ?: null, PDO::PARAM_STR);
             $stmt->bindValue(':visible', $visible, PDO::PARAM_BOOL);
+            $stmt->bindValue(':secret', $secret, PDO::PARAM_STR);
             $stmt->bindValue(':accent_color', $accent_color, PDO::PARAM_STR);
             $stmt->bindValue(':background', $background ?: null, PDO::PARAM_STR);
             $stmt->bindValue(':embedding', $vector_str, PDO::PARAM_STR);

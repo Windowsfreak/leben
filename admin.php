@@ -132,6 +132,7 @@ try {
             $type = trim($_POST['type'] ?? 'doc');
             $content_file = trim($_POST['content_file'] ?? '');
             $visible = ($_POST['visible'] ?? 'true') === 'true';
+            $secret = trim($_POST['secret'] ?? '');
             $sort_order = isset($_POST['sort_order']) ? (int)$_POST['sort_order'] : 100;
             $accent_color = trim($_POST['accent_color'] ?? '#fbbf24');
             $background = trim($_POST['background'] ?? '');
@@ -215,6 +216,7 @@ try {
                         type = :type, 
                         content_file = :content_file, 
                         visible = :visible, 
+                        secret = :secret,
                         accent_color = :accent_color,
                         background = :background,
                         embedding = :embedding::vector, 
@@ -230,11 +232,11 @@ try {
                     INSERT INTO tiles (
                         name, language, tags, title, html_teaser, 
                         summary, link, type, content_file, 
-                        visible, accent_color, background, embedding, sort_order
+                        visible, secret, accent_color, background, embedding, sort_order
                     ) VALUES (
                         :name, :language, :tags, :title, :html_teaser, 
                         :summary, :link, :type, :content_file, 
-                        :visible, :accent_color, :background, :embedding::vector, :sort_order
+                        :visible, :secret, :accent_color, :background, :embedding::vector, :sort_order
                     )
                 ";
                 $stmt = $db->prepare($sql);
@@ -250,6 +252,7 @@ try {
             $stmt->bindValue(':type', $type, PDO::PARAM_STR);
             $stmt->bindValue(':content_file', $content_file ?: null, PDO::PARAM_STR);
             $stmt->bindValue(':visible', $visible, PDO::PARAM_BOOL);
+            $stmt->bindValue(':secret', $secret, PDO::PARAM_STR);
             $stmt->bindValue(':accent_color', $accent_color, PDO::PARAM_STR);
             $stmt->bindValue(':background', $background ?: null, PDO::PARAM_STR);
             $stmt->bindValue(':embedding', $vector_str, PDO::PARAM_STR);
@@ -273,6 +276,7 @@ try {
                     SET type = :type,
                         link = :link,
                         visible = :visible,
+                        secret = :secret,
                         accent_color = :accent_color,
                         background = :background,
                         sort_order = :sort_order,
@@ -282,6 +286,7 @@ try {
                 $sync_stmt->bindValue(':type', $type, PDO::PARAM_STR);
                 $sync_stmt->bindValue(':link', $link ?: null, PDO::PARAM_STR);
                 $sync_stmt->bindValue(':visible', $visible, PDO::PARAM_BOOL);
+                $sync_stmt->bindValue(':secret', $secret, PDO::PARAM_STR);
                 $sync_stmt->bindValue(':accent_color', $accent_color, PDO::PARAM_STR);
                 $sync_stmt->bindValue(':background', $background ?: null, PDO::PARAM_STR);
                 $sync_stmt->bindValue(':sort_order', $sort_order, PDO::PARAM_INT);
@@ -352,11 +357,11 @@ try {
                 INSERT INTO tiles (
                     name, language, tags, title, html_teaser, 
                     summary, link, type, content_file, 
-                    visible, accent_color, background, embedding, sort_order
+                    visible, secret, accent_color, background, embedding, sort_order
                 ) VALUES (
                     :name, :language, :tags, :title, :html_teaser, 
                     :summary, :link, :type, :content_file, 
-                    :visible, :accent_color, :background, :embedding::vector, :sort_order
+                    :visible, :secret, :accent_color, :background, :embedding::vector, :sort_order
                 )
             ";
 
@@ -371,6 +376,7 @@ try {
             $insert->bindValue(':type', $src_type, PDO::PARAM_STR);
             $insert->bindValue(':content_file', $tile['content_file'], PDO::PARAM_STR);
             $insert->bindValue(':visible', false, PDO::PARAM_BOOL); // Set cloned copy to invisible by default
+            $insert->bindValue(':secret', $tile['secret'] ?? '', PDO::PARAM_STR);
             $insert->bindValue(':accent_color', $tile['accent_color'], PDO::PARAM_STR);
             $insert->bindValue(':background', $tile['background'], PDO::PARAM_STR);
             $insert->bindValue(':embedding', $tile['embedding'], PDO::PARAM_STR);

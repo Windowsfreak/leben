@@ -1,5 +1,74 @@
 // Digital Business Card Frontend Logic
 
+// Reference code persistence & immediate URL cleaning
+const REF_STORAGE_KEY = 'leben_ref_codes';
+
+function getSavedReferenceCodes() {
+    try {
+        const val = localStorage.getItem(REF_STORAGE_KEY);
+        if (!val) return [];
+        return val.split(',').map(s => s.trim()).filter(Boolean);
+    } catch (e) {
+        return [];
+    }
+}
+
+function saveReferenceCode(code) {
+    if (!code) return;
+    try {
+        const current = getSavedReferenceCodes();
+        if (!current.includes(code)) {
+            current.push(code);
+            localStorage.setItem(REF_STORAGE_KEY, current.join(','));
+        }
+    } catch (e) {}
+}
+
+function getReferenceHeader() {
+    return getSavedReferenceCodes().join(',');
+}
+
+function buildApiHeaders() {
+    const headers = {};
+    const ref = getReferenceHeader();
+    if (ref) {
+        headers['X-Reference'] = ref;
+    }
+    return headers;
+}
+
+// Immediate URL check (executes right away on script parse)
+(function processReferenceCodeFromURL() {
+    try {
+        const path = window.location.pathname || '';
+        const hash = window.location.hash || '';
+        const match = path.match(/~([a-zA-Z0-9_-]+)/) || hash.match(/~([a-zA-Z0-9_-]+)/);
+        
+        if (match && match[1]) {
+            const code = match[1].trim();
+            if (code) {
+                saveReferenceCode(code);
+            }
+            
+            // Clean URL: remove ~<code_here> and any trailing slash immediately
+            let cleanPath = path.replace(/~[a-zA-Z0-9_-]+\/?/, '');
+            if (!cleanPath || cleanPath === '') cleanPath = '/';
+            
+            let cleanHash = hash;
+            if (cleanHash.includes('~')) {
+                cleanHash = cleanHash.replace(/~[a-zA-Z0-9_-]+\/?/, '');
+            }
+            
+            const cleanUrl = cleanPath + cleanHash + window.location.search;
+            try {
+                window.history.replaceState(null, '', cleanUrl);
+            } catch (e) {
+                window.location.replace(cleanUrl);
+            }
+        }
+    } catch (e) {}
+})();
+
 // App State
 let q = '';
 let lang = 'de';
@@ -259,7 +328,7 @@ function loadMore() {
     
     const url = `api.php?action=search&q=${encodeURIComponent(q)}&lang=${lang}&offset=${offset}&limit=${limit}`;
     
-    fetch(url)
+    fetch(url, { headers: buildApiHeaders() })
         .then(response => {
             if (!response.ok) {
                 throw new Error(`API error: ${response.status}`);
@@ -494,7 +563,7 @@ function handleURLRouting() {
             return;
         }
 
-        fetch(`api.php?action=get_tile&name=${encodeURIComponent(route.name)}&lang=${encodeURIComponent(fetchLang)}`)
+        fetch(`api.php?action=get_tile&name=${encodeURIComponent(route.name)}&lang=${encodeURIComponent(fetchLang)}`, { headers: buildApiHeaders() })
             .then(res => res.json())
             .then(res => {
                 if (res.status === 'success' && res.data) {
@@ -608,7 +677,7 @@ function openLightbox(tile, updateHistory = true) {
 window.refreshActiveLightbox = function() {
     if (activeLightboxTile) {
         if (!activeLightboxTile.content_file) {
-            fetch(`api.php?action=get_tile&name=${encodeURIComponent(activeLightboxTile.name)}&lang=${activeLightboxTile.language}`)
+            fetch(`api.php?action=get_tile&name=${encodeURIComponent(activeLightboxTile.name)}&lang=${activeLightboxTile.language}`, { headers: buildApiHeaders() })
                 .then(r => r.json())
                 .then(r => {
                     if (r.status === 'success') {
@@ -624,7 +693,7 @@ window.refreshActiveLightbox = function() {
 
 // Fetch and append similar tiles at the bottom of the lightbox
 function loadSimilarTiles(tileName, targetBody) {
-    fetch(`api.php?action=similar&name=${encodeURIComponent(tileName)}&lang=${lang}&limit=3`)
+    fetch(`api.php?action=similar&name=${encodeURIComponent(tileName)}&lang=${lang}&limit=3`, { headers: buildApiHeaders() })
         .then(res => res.json())
         .then(res => {
             if (res.status === 'success' && res.data && res.data.length > 0) {

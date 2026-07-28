@@ -89,6 +89,32 @@ function format_tile_document_text($name, $language, $tags, $summary) {
     return "{$name} " . strtoupper($language) . ", {$tags_str}: {$summary}";
 }
 
+// Extract reference access codes sent by frontend header (e.g. X-Reference: code1,code2)
+function get_request_reference_codes() {
+    $headers = [];
+    if (function_exists('getallheaders')) {
+        $headers = array_change_key_case(getallheaders() ?: [], CASE_LOWER);
+    }
+    $ref_str = '';
+    if (isset($headers['x-reference'])) {
+        $ref_str = $headers['x-reference'];
+    } elseif (isset($_SERVER['HTTP_X_REFERENCE'])) {
+        $ref_str = $_SERVER['HTTP_X_REFERENCE'];
+    }
+    if (empty($ref_str)) {
+        return [];
+    }
+    $parts = explode(',', $ref_str);
+    $cleaned = [];
+    foreach ($parts as $p) {
+        $p = trim($p);
+        if ($p !== '') {
+            $cleaned[] = $p;
+        }
+    }
+    return array_unique($cleaned);
+}
+
 // Perform a language-resolved query (with optional semantic search)
 function search_tiles($pref_lang, $query_string = null, $offset = 0, $limit = 20) {
     $db = get_db_connection();
@@ -104,6 +130,9 @@ function search_tiles($pref_lang, $query_string = null, $offset = 0, $limit = 20
     if (!empty($_SESSION['admin_logged_in'])) {
         $show_invisible = true;
     }
+
+    $ref_codes = get_request_reference_codes();
+    $ref_codes_str = implode(',', $ref_codes);
     
     if (!empty($query_string)) {
         // Append language code in all-caps to target alignment with document embedding format
@@ -126,7 +155,7 @@ function search_tiles($pref_lang, $query_string = null, $offset = 0, $limit = 20
                                (embedding <=> :vector::vector) ASC
                        ) as rn
                 FROM tiles
-                WHERE (visible = true OR :show_invisible = true)
+                WHERE (:show_invisible = true OR (visible = true AND (secret = '' OR secret = ANY(string_to_array(:ref_codes, ',')))))
             )
             SELECT id, name, language, tags, title, html_teaser, 
                    summary, link, type, content_file, 
@@ -141,6 +170,7 @@ function search_tiles($pref_lang, $query_string = null, $offset = 0, $limit = 20
         $stmt->bindValue(':vector', $vector_str, PDO::PARAM_STR);
         $stmt->bindValue(':pref_lang', $pref_lang, PDO::PARAM_STR);
         $stmt->bindValue(':show_invisible', $show_invisible, PDO::PARAM_BOOL);
+        $stmt->bindValue(':ref_codes', $ref_codes_str, PDO::PARAM_STR);
         $stmt->bindValue(':limit', (int)$db_limit, PDO::PARAM_INT);
         $stmt->bindValue(':offset', (int)$offset, PDO::PARAM_INT);
         $stmt->execute();
@@ -159,7 +189,7 @@ function search_tiles($pref_lang, $query_string = null, $offset = 0, $limit = 20
                                sort_order ASC, created_at DESC
                        ) as rn
                 FROM tiles
-                WHERE (visible = true OR :show_invisible = true)
+                WHERE (:show_invisible = true OR (visible = true AND (secret = '' OR secret = ANY(string_to_array(:ref_codes, ',')))))
             )
             SELECT id, name, language, tags, title, html_teaser, 
                    summary, link, type, content_file, 
@@ -173,6 +203,7 @@ function search_tiles($pref_lang, $query_string = null, $offset = 0, $limit = 20
         $stmt = $db->prepare($sql);
         $stmt->bindValue(':pref_lang', $pref_lang, PDO::PARAM_STR);
         $stmt->bindValue(':show_invisible', $show_invisible, PDO::PARAM_BOOL);
+        $stmt->bindValue(':ref_codes', $ref_codes_str, PDO::PARAM_STR);
         $stmt->bindValue(':limit', (int)$db_limit, PDO::PARAM_INT);
         $stmt->bindValue(':offset', (int)$offset, PDO::PARAM_INT);
         $stmt->execute();
@@ -192,6 +223,9 @@ function get_similar_tiles($name, $pref_lang, $limit = 3, $offset = 0) {
     if (!empty($_SESSION['admin_logged_in'])) {
         $show_invisible = true;
     }
+
+    $ref_codes = get_request_reference_codes();
+    $ref_codes_str = implode(',', $ref_codes);
 
     $sql = "
         WITH source_tile AS (
@@ -213,7 +247,7 @@ function get_similar_tiles($name, $pref_lang, $limit = 3, $offset = 0) {
                            (embedding <=> (SELECT embedding FROM source_tile)) ASC
                        ) as rn
             FROM tiles
-            WHERE (visible = true OR :show_invisible = true) AND name != :name
+            WHERE (:show_invisible = true OR (visible = true AND (secret = '' OR secret = ANY(string_to_array(:ref_codes, ','))))) AND name != :name
         )
         SELECT id, name, language, tags, title, html_teaser, 
                summary, link, type, content_file, 
@@ -228,6 +262,7 @@ function get_similar_tiles($name, $pref_lang, $limit = 3, $offset = 0) {
     $stmt->bindValue(':name', $name, PDO::PARAM_STR);
     $stmt->bindValue(':pref_lang', $pref_lang, PDO::PARAM_STR);
     $stmt->bindValue(':show_invisible', $show_invisible, PDO::PARAM_BOOL);
+    $stmt->bindValue(':ref_codes', $ref_codes_str, PDO::PARAM_STR);
     $stmt->bindValue(':limit', (int)$db_limit, PDO::PARAM_INT);
     $stmt->bindValue(':offset', (int)$offset, PDO::PARAM_INT);
     $stmt->execute();
@@ -506,6 +541,7 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
                     type = :type,
                     content_file = :content_file,
                     visible = :visible,
+                    secret = :secret,
                     accent_color = :accent_color,
                     background = :background,
                     embedding = :embedding::vector,
@@ -520,11 +556,11 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
                 INSERT INTO tiles (
                     name, language, tags, title, html_teaser,
                     summary, link, type, content_file,
-                    visible, accent_color, background, embedding, sort_order, created_at, updated_at
+                    visible, secret, accent_color, background, embedding, sort_order, created_at, updated_at
                 ) VALUES (
                     :name, :language, :tags, :title, :html_teaser,
                     :summary, :link, :type, :content_file,
-                    :visible, :accent_color, :background, :embedding::vector, :sort_order,
+                    :visible, :secret, :accent_color, :background, :embedding::vector, :sort_order,
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
                 )
             ";
@@ -541,6 +577,7 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
         $stmt->bindValue(':type', $source_tile['type'], PDO::PARAM_STR);
         $stmt->bindValue(':content_file', $target_content_file, PDO::PARAM_STR);
         $stmt->bindValue(':visible', (bool)$source_tile['visible'], PDO::PARAM_BOOL);
+        $stmt->bindValue(':secret', $source_tile['secret'] ?? '', PDO::PARAM_STR);
         $stmt->bindValue(':accent_color', $source_tile['accent_color'], PDO::PARAM_STR);
         $stmt->bindValue(':background', $source_tile['background'], PDO::PARAM_STR);
         $stmt->bindValue(':embedding', $vector_str, PDO::PARAM_STR);

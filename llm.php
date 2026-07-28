@@ -16,7 +16,8 @@ if (isset($_GET['limit'])) {
 }
 
 $supported = array_keys(get_supported_languages());
-$lang = in_array($lang, $supported) ? $lang : 'en';
+$raw_lang = strtolower(trim($_GET['lang'] ?? $_POST['lang'] ?? 'en'));
+$lang = in_array($raw_lang, $supported) ? $raw_lang : 'en';
 
 $format = strtolower(trim($_GET['format'] ?? $_POST['format'] ?? 'snippet'));
 if (!in_array($format, ['min', 'snippet', 'summary', 'full'])) {

@@ -52,19 +52,36 @@ try {
                 throw new Exception("Tile name is required.");
             }
             
+            $show_invisible = false;
+            if (session_status() === PHP_SESSION_NONE) {
+                session_start();
+            }
+            if (!empty($_SESSION['admin_logged_in'])) {
+                $show_invisible = true;
+            }
+
+            $ref_codes = get_request_reference_codes();
+            $ref_codes_str = implode(',', $ref_codes);
+
             $db = get_db_connection();
             $stmt = $db->prepare("
                 SELECT * FROM tiles 
                 WHERE name = :name AND language = :lang 
+                  AND (:show_invisible = true OR (visible = true AND (secret = '' OR secret = ANY(string_to_array(:ref_codes, ',')))))
                 LIMIT 1
             ");
-            $stmt->execute([':name' => $name, ':lang' => $lang]);
+            $stmt->bindValue(':name', $name, PDO::PARAM_STR);
+            $stmt->bindValue(':lang', $lang, PDO::PARAM_STR);
+            $stmt->bindValue(':show_invisible', $show_invisible, PDO::PARAM_BOOL);
+            $stmt->bindValue(':ref_codes', $ref_codes_str, PDO::PARAM_STR);
+            $stmt->execute();
             $tile = $stmt->fetch();
             
             if (!$tile) {
                 // Try fallback language
                 $fallback = ($lang === 'de') ? 'en' : 'de';
-                $stmt->execute([':name' => $name, ':lang' => $fallback]);
+                $stmt->bindValue(':lang', $fallback, PDO::PARAM_STR);
+                $stmt->execute();
                 $tile = $stmt->fetch();
             }
             
@@ -72,6 +89,10 @@ try {
                 throw new Exception("Tile '{$name}' not found.");
             }
             
+            if (!$show_invisible) {
+                unset($tile['secret']);
+            }
+
             echo json_encode([
                 'status' => 'success',
                 'data' => $tile

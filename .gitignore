@@ -5,6 +5,7 @@ config.php
 db_setup.php
 content/
 tileimg/
+img/
 *.jpg
 *.JPEG
 *.vcf

@@ -107,6 +107,7 @@ function openEditor(tile = null) {
         document.getElementById('editContentFile').value = tile.content_file || '';
         document.getElementById('editHtmlContent').value = tile.html_teaser || '';
         document.getElementById('editVisible').checked = tile.visible;
+        document.getElementById('editSecret').value = tile.secret || '';
         document.getElementById('editSortOrder').value = tile.sort_order || 100;
         document.getElementById('editBackground').value = tile.background || '';
         
@@ -120,6 +121,8 @@ function openEditor(tile = null) {
         document.getElementById('editorDialogTitle').textContent = "Neue Kachel erstellen";
         document.getElementById('editId').value = '';
         document.getElementById('editLanguage').value = lang; // default to active browser language
+        document.getElementById('editVisible').checked = true;
+        document.getElementById('editSecret').value = '';
         document.getElementById('editSortOrder').value = '100';
         document.getElementById('editAccentColor').value = '#fbbf24';
         document.getElementById('editAccentColorPicker').value = '#fbbf24';
@@ -507,6 +510,7 @@ function saveTile(syncSiblings = false) {
     formData.append('content_file', document.getElementById('editContentFile').value);
     formData.append('html_teaser', htmlContent);
     formData.append('visible', document.getElementById('editVisible').checked ? 'true' : 'false');
+    formData.append('secret', document.getElementById('editSecret').value);
     formData.append('sort_order', document.getElementById('editSortOrder').value);
     formData.append('accent_color', document.getElementById('editAccentColor').value);
     formData.append('background', document.getElementById('editBackground').value);
