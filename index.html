@@ -81,8 +81,12 @@
         <div class="dialog-container">
             <div class="dialog-header-bar">
                 <div class="dialog-header-title" id="detailsDialogHeader">Details</div>
-                <button class="close-btn" id="closeDetailsBtn">&times;</button>
+                <div class="dialog-header-actions">
+                    <button class="info-btn" id="infoDetailsBtn" title="Information & Metadata"><i class="fa-solid fa-circle-info"></i></button>
+                    <button class="close-btn" id="closeDetailsBtn">&times;</button>
+                </div>
             </div>
+            <div class="dialog-info-panel" id="detailsInfoPanel" style="display: none;"></div>
             <div class="dialog-body" id="detailsDialogBody">
                 <!-- Loaded dynamically -->
             </div>

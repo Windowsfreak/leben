@@ -558,6 +558,39 @@ dialog[open]::backdrop {
     color: var(--text-secondary);
 }
 
+.dialog-header-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.info-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: none;
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    color: var(--text-primary);
+    font-size: 1rem;
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: background 0.2s, transform 0.2s, color 0.2s;
+}
+
+.info-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+    transform: scale(1.1);
+    color: var(--accent-gold, #fbbf24);
+}
+
+.info-btn.active {
+    background: rgba(251, 191, 36, 0.2);
+    color: var(--accent-gold, #fbbf24);
+    border: 1px solid rgba(251, 191, 36, 0.4);
+}
+
 .close-btn {
     background: rgba(255, 255, 255, 0.05);
     border: none;
@@ -576,6 +609,123 @@ dialog[open]::backdrop {
 .close-btn:hover {
     background: rgba(255, 255, 255, 0.15);
     transform: scale(1.1);
+}
+
+.dialog-info-panel {
+    background: rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid var(--card-border);
+    padding: 1.25rem 1.75rem;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+}
+
+.info-panel-section {
+    margin-bottom: 1rem;
+}
+
+.info-panel-section:last-child {
+    margin-bottom: 0;
+}
+
+.info-panel-title {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-bottom: 0.5rem;
+    font-weight: 600;
+}
+
+.info-timestamps-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.info-timestamp-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: rgba(255, 255, 255, 0.04);
+    padding: 0.35rem 0.75rem;
+    border-radius: 6px;
+    border: 1px solid var(--card-border);
+    font-size: 0.85rem;
+}
+
+.info-languages-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.info-lang-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--card-border);
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    text-decoration: none;
+    color: var(--text-primary);
+    transition: background 0.2s, border-color 0.2s;
+    cursor: pointer;
+}
+
+.info-lang-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: var(--accent-gold, #fbbf24);
+}
+
+.info-lang-item.is-current {
+    border-color: var(--accent-gold, #fbbf24);
+    background: rgba(251, 191, 36, 0.1);
+}
+
+.info-lang-left {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.info-lang-code {
+    font-family: monospace;
+    font-weight: bold;
+    color: var(--accent-gold, #fbbf24);
+    font-size: 0.9rem;
+}
+
+.info-lang-right {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+}
+
+.info-source-badge {
+    background: #10b981;
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.info-current-badge {
+    background: rgba(251, 191, 36, 0.2);
+    color: var(--accent-gold, #fbbf24);
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 0.15rem 0.45rem;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    border: 1px solid rgba(251, 191, 36, 0.4);
 }
 
 .dialog-body {

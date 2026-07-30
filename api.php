@@ -99,6 +99,44 @@ try {
             ]);
             break;
             
+        case 'get_tile_info':
+            $name = strtolower(trim($_GET['name'] ?? ''));
+            if (empty($name)) {
+                throw new Exception("Tile name is required.");
+            }
+
+            $show_invisible = false;
+            if (session_status() === PHP_SESSION_NONE) {
+                session_start();
+            }
+            if (!empty($_SESSION['admin_logged_in'])) {
+                $show_invisible = true;
+            }
+
+            $ref_codes = get_request_reference_codes();
+            $ref_codes_str = implode(',', $ref_codes);
+
+            $db = get_db_connection();
+            $stmt = $db->prepare("
+                SELECT id, name, language, title, created_at, updated_at, visible
+                FROM tiles
+                WHERE name = :name
+                  AND (:show_invisible = true OR (visible = true AND (secret = '' OR secret = ANY(string_to_array(:ref_codes, ',')))))
+                ORDER BY created_at ASC
+            ");
+            $stmt->bindValue(':name', $name, PDO::PARAM_STR);
+            $stmt->bindValue(':show_invisible', $show_invisible, PDO::PARAM_BOOL);
+            $stmt->bindValue(':ref_codes', $ref_codes_str, PDO::PARAM_STR);
+            $stmt->execute();
+            $versions = $stmt->fetchAll();
+
+            echo json_encode([
+                'status' => 'success',
+                'name' => $name,
+                'versions' => $versions
+            ]);
+            break;
+
         default:
             throw new Exception("Invalid API action.");
     }

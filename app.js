@@ -178,9 +178,8 @@ function updateLanguageUI() {
     const heroDetails = appConfig && appConfig.hero ? (appConfig.hero[lang] || appConfig.hero['de'] || {}) : {};
     
     const searchInput = document.getElementById('searchInput');
-    if (searchInput) {
-        searchInput.placeholder = heroDetails.searchPlaceholder || 
-            (lang === 'en' ? "Search topics (e.g., IT, Finance, Parkour, Bio)..." : "Suche nach Themen (z.B. IT, Finanzen, Parkour, Bio)...");
+    if (searchInput && heroDetails.searchPlaceholder) {
+        searchInput.placeholder = heroDetails.searchPlaceholder;
     }
 }
 
@@ -609,6 +608,11 @@ function openLightbox(tile, updateHistory = true) {
     const dialog = document.getElementById('detailsDialog');
     const header = document.getElementById('detailsDialogHeader');
     const body = document.getElementById('detailsDialogBody');
+    const infoPanel = document.getElementById('detailsInfoPanel');
+    const infoBtn = document.getElementById('infoDetailsBtn');
+
+    if (infoPanel) infoPanel.style.display = 'none';
+    if (infoBtn) infoBtn.classList.remove('active');
     
     header.textContent = tile.title;
     body.innerHTML = '<div style="display:flex; justify-content:center; padding: 2rem;"><div class="spinner active"></div></div>';
@@ -690,6 +694,138 @@ window.refreshActiveLightbox = function() {
     }
 };
 
+// Format timestamp helper
+function formatDateTime(dateStr) {
+    if (!dateStr) return '-';
+    try {
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) return dateStr;
+        return d.toLocaleDateString(navigator.language || undefined, {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    } catch (e) {
+        return dateStr;
+    }
+}
+
+// Toggle and fetch Lightbox Metadata Info Panel
+function toggleLightboxInfoPanel() {
+    const panel = document.getElementById('detailsInfoPanel');
+    const infoBtn = document.getElementById('infoDetailsBtn');
+    if (!panel || !activeLightboxTile) return;
+
+    if (panel.style.display === 'block') {
+        panel.style.display = 'none';
+        if (infoBtn) infoBtn.classList.remove('active');
+        return;
+    }
+
+    panel.style.display = 'block';
+    if (infoBtn) infoBtn.classList.add('active');
+
+    panel.innerHTML = '<div style="display:flex; justify-content:center; padding: 1rem;"><div class="spinner active"></div></div>';
+
+    fetch(`api.php?action=get_tile_info&name=${encodeURIComponent(activeLightboxTile.name)}`, { headers: buildApiHeaders() })
+        .then(res => res.json())
+        .then(res => {
+            if (res.status === 'success' && res.versions) {
+                renderLightboxInfoPanel(res.versions);
+            } else {
+                panel.innerHTML = `<div style="color:var(--danger); padding:0.5rem 0;">Metadata loading failed.</div>`;
+            }
+        })
+        .catch(err => {
+            console.error("Failed to fetch tile info:", err);
+            panel.innerHTML = `<div style="color:var(--danger); padding:0.5rem 0;">Metadata error.</div>`;
+        });
+}
+
+// Render content of Lightbox Metadata Info Panel
+function renderLightboxInfoPanel(versions) {
+    const panel = document.getElementById('detailsInfoPanel');
+    if (!panel || !activeLightboxTile) return;
+
+    const currentVersion = versions.find(v => v.language === activeLightboxTile.language) || activeLightboxTile;
+    const createdAtText = formatDateTime(currentVersion.created_at || activeLightboxTile.created_at);
+    const updatedAtText = formatDateTime(currentVersion.updated_at || activeLightboxTile.updated_at);
+
+    const heroDetails = appConfig && appConfig.hero ? (appConfig.hero[lang] || appConfig.hero['de'] || {}) : {};
+    const t = {
+        created: heroDetails.metaCreated,
+        updated: heroDetails.metaUpdated,
+        availableLangs: heroDetails.metaAvailableLangs,
+        source: heroDetails.metaSource,
+        active: heroDetails.metaActive
+    };
+    const supportedMap = appConfig && appConfig.supported_languages ? appConfig.supported_languages : {};
+
+    let html = `
+        <div class="info-timestamps-grid">
+            <div class="info-timestamp-item">
+                <i class="fa-regular fa-calendar-plus" style="color:var(--accent-gold,#fbbf24)"></i>
+                <span><strong>${t.created}:</strong> ${createdAtText}</span>
+            </div>
+            <div class="info-timestamp-item">
+                <i class="fa-regular fa-clock" style="color:var(--accent-gold,#fbbf24)"></i>
+                <span><strong>${t.updated}:</strong> ${updatedAtText}</span>
+            </div>
+        </div>
+        <div class="info-panel-section">
+            <div class="info-panel-title">${t.availableLangs} (${versions.length})</div>
+            <div class="info-languages-list">
+    `;
+
+    versions.forEach((v, index) => {
+        const isSource = (index === 0);
+        const isCurrent = (v.language === activeLightboxTile.language);
+        const langName = supportedMap[v.language] || v.language.toUpperCase();
+        const hashtag = `#${v.name || activeLightboxTile.name}:${v.language}`;
+        const vUpdated = formatDateTime(v.updated_at);
+
+        html += `
+            <div class="info-lang-item ${isCurrent ? 'is-current' : ''}" data-lang="${v.language}" data-name="${v.name || activeLightboxTile.name}">
+                <div class="info-lang-left">
+                    <span class="info-lang-code">${hashtag}</span>
+                    <span class="info-lang-name">${langName}</span>
+                    ${isSource ? `<span class="info-source-badge">${t.source}</span>` : ''}
+                    ${isCurrent ? `<span class="info-current-badge">${t.active}</span>` : ''}
+                </div>
+                <div class="info-lang-right">
+                    <span><i class="fa-regular fa-clock"></i> ${vUpdated}</span>
+                </div>
+            </div>
+        `;
+    });
+
+    html += `
+            </div>
+        </div>
+    `;
+
+    panel.innerHTML = html;
+
+    panel.querySelectorAll('.info-lang-item').forEach(item => {
+        item.addEventListener('click', (e) => {
+            e.preventDefault();
+            const targetLang = item.getAttribute('data-lang');
+            const targetName = item.getAttribute('data-name');
+            if (targetLang === activeLightboxTile.language) return;
+
+            fetch(`api.php?action=get_tile&name=${encodeURIComponent(targetName)}&lang=${encodeURIComponent(targetLang)}`, { headers: buildApiHeaders() })
+                .then(r => r.json())
+                .then(r => {
+                    if (r.status === 'success' && r.data) {
+                        openLightbox(r.data, true);
+                    }
+                });
+        });
+    });
+}
+
 
 // Fetch and append similar tiles at the bottom of the lightbox
 function loadSimilarTiles(tileName, targetBody) {
@@ -699,7 +835,8 @@ function loadSimilarTiles(tileName, targetBody) {
             if (res.status === 'success' && res.data && res.data.length > 0) {
                 const section = document.createElement('div');
                 section.className = 'see-also-section';
-                const titleText = (lang === 'en') ? 'Related Topics' : 'Ähnliche Themen';
+                const heroDetails = appConfig && appConfig.hero ? (appConfig.hero[lang] || appConfig.hero['de'] || {}) : {};
+                const titleText = heroDetails.relatedTopicsTitle;
                 section.innerHTML = `<h3 class="see-also-title">${titleText}</h3>`;
                 
                 const grid = document.createElement('div');
@@ -775,6 +912,11 @@ function setupEventHandlers() {
 
     // Infinite Scroll setup
     setupScrollObserver();
+
+    const infoDetailsBtn = document.getElementById('infoDetailsBtn');
+    if (infoDetailsBtn) {
+        infoDetailsBtn.addEventListener('click', toggleLightboxInfoPanel);
+    }
 
     // Dialog closers (only non-admin ones)
     const detailsDialogEl = document.getElementById('detailsDialog');
