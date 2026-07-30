@@ -191,6 +191,35 @@ function get_mcp_tools() {
                     'name' => ['type' => 'string', 'description' => 'Optional tile name filter']
                 ]
             ]
+        ],
+        [
+            'name' => 'update_tile',
+            'description' => 'Update fields of an existing tile by name and language.',
+            'inputSchema' => [
+                'type' => 'object',
+                'properties' => [
+                    'name' => ['type' => 'string', 'description' => 'Tile name slug'],
+                    'language' => ['type' => 'string', 'description' => 'Language code (default "de")'],
+                    'title' => ['type' => 'string'],
+                    'summary' => ['type' => 'string'],
+                    'html_teaser' => ['type' => 'string'],
+                    'tags' => ['type' => 'array', 'items' => ['type' => 'string']],
+                    'content_file' => ['type' => 'string']
+                ],
+                'required' => ['name']
+            ]
+        ],
+        [
+            'name' => 'save_content_file',
+            'description' => 'Save or update HTML content file in the /content directory.',
+            'inputSchema' => [
+                'type' => 'object',
+                'properties' => [
+                    'file' => ['type' => 'string', 'description' => 'Filename (e.g. "sawtooth-tactics-de.html")'],
+                    'content' => ['type' => 'string', 'description' => 'Full HTML content']
+                ],
+                'required' => ['file', 'content']
+            ]
         ]
     ];
 }
@@ -462,6 +491,51 @@ function execute_mcp_tool($tool_name, $args) {
         case 'list_translation_status':
             $tile_name = $args['name'] ?? null;
             return check_translation_matrix($tile_name);
+
+        case 'save_content_file':
+            $file = trim($args['file'] ?? '');
+            $content = $args['content'] ?? '';
+            if (!preg_match('/^[a-zA-Z0-9_\-\.]+\.html$/', $file)) {
+                throw new Exception("Invalid file name format.");
+            }
+            $path = __DIR__ . '/content/' . $file;
+            if (file_put_contents($path, $content) === false) {
+                throw new Exception("Failed to write to content file.");
+            }
+            return ['status' => 'success', 'message' => "Content file '{$file}' saved successfully."];
+
+        case 'update_tile':
+            $name = trim($args['name'] ?? '');
+            $language = strtolower(trim($args['language'] ?? 'de'));
+            if (empty($name)) {
+                throw new Exception("Name is required.");
+            }
+            $stmt = $db->prepare("SELECT id FROM tiles WHERE name = :name AND language = :language");
+            $stmt->execute([':name' => $name, ':language' => $language]);
+            $tile = $stmt->fetch();
+            if (!$tile) {
+                throw new Exception("Tile '{$name}' ({$language}) not found.");
+            }
+
+            $fields = [];
+            $params = [':id' => $tile['id']];
+            if (isset($args['title'])) { $fields[] = "title = :title"; $params[':title'] = trim($args['title']); }
+            if (isset($args['summary'])) { $fields[] = "summary = :summary"; $params[':summary'] = trim($args['summary']); }
+            if (isset($args['html_teaser'])) { $fields[] = "html_teaser = :html_teaser"; $params[':html_teaser'] = trim($args['html_teaser']); }
+            if (isset($args['content_file'])) { $fields[] = "content_file = :content_file"; $params[':content_file'] = trim($args['content_file']); }
+            if (isset($args['tags'])) {
+                $raw_tags = $args['tags'];
+                $tags_arr = is_array($raw_tags) ? $raw_tags : array_filter(array_map('trim', explode(',', (string)$raw_tags)));
+                $fields[] = "tags = :tags";
+                $params[':tags'] = '{' . implode(',', $tags_arr) . '}';
+            }
+            $fields[] = "updated_at = CURRENT_TIMESTAMP";
+
+            $sql = "UPDATE tiles SET " . implode(', ', $fields) . " WHERE id = :id";
+            $stmt = $db->prepare($sql);
+            $stmt->execute($params);
+
+            return ['status' => 'success', 'message' => "Tile '{$name}' updated successfully."];
 
         default:
             throw new Exception("Unknown tool '{$tool_name}'.");

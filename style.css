@@ -625,7 +625,20 @@ dialog[open]::backdrop {
     color: var(--text-secondary);
 }
 
+.lightbox-article ol {
+    margin-bottom: 1.25rem;
+    padding-left: 1.25rem;
+    list-style-type: decimal;
+    color: var(--text-secondary);
+}
+
 .lightbox-article li {
+    margin-bottom: 0.5rem;
+    line-height: 1.5;
+    width: 100%;
+}
+
+.lightbox-article ul > li:has(> a:first-child) {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -635,12 +648,18 @@ dialog[open]::backdrop {
     width: 100%;
 }
 
-.lightbox-article li a {
+.lightbox-article ul > li:has(> a:first-child) > a:first-child {
     flex: 1 1 auto;
     min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    font-weight: 300;
+}
+
+.lightbox-article li > strong:first-child {
+    display: block;
+    color: var(--text-primary);
 }
 
 .lightbox-article li .post-date {

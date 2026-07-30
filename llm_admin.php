@@ -144,6 +144,53 @@ try {
             ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
             break;
 
+        case 'save_content_file':
+            $file = trim($_POST['file'] ?? $_GET['file'] ?? '');
+            $content = $_POST['content'] ?? $_GET['content'] ?? '';
+            if (!preg_match('/^[a-zA-Z0-9_\-\.]+\.html$/', $file)) {
+                throw new Exception("Invalid file name format.");
+            }
+            $path = __DIR__ . '/content/' . $file;
+            if (file_put_contents($path, $content) === false) {
+                throw new Exception("Failed to write to file.");
+            }
+            echo json_encode(['status' => 'success', 'message' => "Content file '{$file}' saved successfully."]);
+            break;
+
+        case 'update':
+            $name = trim($_POST['name'] ?? $_GET['name'] ?? '');
+            $language = strtolower(trim($_POST['language'] ?? $_GET['language'] ?? 'de'));
+            if (empty($name)) {
+                throw new Exception("Name is required.");
+            }
+            $stmt = $db->prepare("SELECT id FROM tiles WHERE name = :name AND language = :language");
+            $stmt->execute([':name' => $name, ':language' => $language]);
+            $tile = $stmt->fetch();
+            if (!$tile) {
+                throw new Exception("Tile '{$name}' ({$language}) not found.");
+            }
+
+            $fields = [];
+            $params = [':id' => $tile['id']];
+            if (isset($_REQUEST['title'])) { $fields[] = "title = :title"; $params[':title'] = trim($_REQUEST['title']); }
+            if (isset($_REQUEST['summary'])) { $fields[] = "summary = :summary"; $params[':summary'] = trim($_REQUEST['summary']); }
+            if (isset($_REQUEST['html_teaser'])) { $fields[] = "html_teaser = :html_teaser"; $params[':html_teaser'] = trim($_REQUEST['html_teaser']); }
+            if (isset($_REQUEST['content_file'])) { $fields[] = "content_file = :content_file"; $params[':content_file'] = trim($_REQUEST['content_file']); }
+            if (isset($_REQUEST['tags'])) {
+                $raw_tags = $_REQUEST['tags'];
+                $tags_arr = is_array($raw_tags) ? $raw_tags : array_filter(array_map('trim', explode(',', (string)$raw_tags)));
+                $fields[] = "tags = :tags";
+                $params[':tags'] = '{' . implode(',', $tags_arr) . '}';
+            }
+            $fields[] = "updated_at = CURRENT_TIMESTAMP";
+
+            $sql = "UPDATE tiles SET " . implode(', ', $fields) . " WHERE id = :id";
+            $stmt = $db->prepare($sql);
+            $stmt->execute($params);
+
+            echo json_encode(['status' => 'success', 'message' => "Tile '{$name}' updated successfully."]);
+            break;
+
         default:
             throw new Exception("Invalid administrative action.");
     }
