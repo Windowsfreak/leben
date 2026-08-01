@@ -565,10 +565,9 @@ Respond ONLY with the translated HTML string. Do not include markdown code block
                 )
             ";
             $stmt = $db->prepare($sql);
+            $stmt->bindValue(':name', $name, PDO::PARAM_STR);
             $stmt->bindValue(':language', $t_lang, PDO::PARAM_STR);
         }
-
-        $stmt->bindValue(':name', $name, PDO::PARAM_STR);
         $stmt->bindValue(':tags', $pg_tags, PDO::PARAM_STR);
         $stmt->bindValue(':title', $translated_meta['title'], PDO::PARAM_STR);
         $stmt->bindValue(':html_teaser', $translated_teaser, PDO::PARAM_STR);
