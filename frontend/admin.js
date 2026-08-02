@@ -457,12 +457,13 @@ function saveSettings() {
     
     const jsonString = JSON.stringify(parsedConfig, null, 2);
     
-    const formData = new FormData();
-    formData.append('config_json', jsonString);
-    
-    fetch('admin.php?action=save_config', {
+    fetch('/api/admin/config', {
         method: 'POST',
-        body: formData
+        headers: {
+            'Content-Type': 'application/json',
+            ...buildApiHeaders()
+        },
+        body: JSON.stringify({ config_json: jsonString })
     })
     .then(res => res.json())
     .then(res => {
@@ -566,12 +567,9 @@ function saveTile(syncSiblings = false) {
 
 // Quick action: Toggle visibility flag of a tile
 function toggleVisibility(id) {
-    const formData = new FormData();
-    formData.append('id', id);
-    
-    fetch('tile_admin.php?action=toggle_visibility', {
+    fetch(`/api/admin/tiles/${id}/toggle-visibility`, {
         method: 'POST',
-        body: formData
+        headers: buildApiHeaders()
     })
         .then(res => res.json())
         .then(res => {
@@ -584,12 +582,9 @@ function toggleVisibility(id) {
 
 // Quick action: Clone an existing tile
 function cloneTile(id) {
-    const formData = new FormData();
-    formData.append('id', id);
-    
-    fetch('tile_admin.php?action=clone', {
+    fetch(`/api/admin/tiles/${id}/clone`, {
         method: 'POST',
-        body: formData
+        headers: buildApiHeaders()
     })
         .then(res => res.json())
         .then(res => {
@@ -769,7 +764,10 @@ function initAdmin() {
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generiere...';
 
-        fetch('tile_admin.php?action=refresh_vectors', { method: 'POST' })
+        fetch('/api/admin/tiles/refresh-vectors', {
+            method: 'POST',
+            headers: buildApiHeaders()
+        })
             .then(res => res.json())
             .then(res => {
                 if (res.status === 'success') {
@@ -1080,7 +1078,7 @@ let translationStatusMap = {};
 
 function fetchTranslationStatuses() {
     if (!isAdmin) return;
-    fetch('tile_admin.php?action=translation_status')
+    fetch('/api/admin/translation-status', { headers: buildApiHeaders() })
         .then(res => res.json())
         .then(res => {
             if (res.status === 'success') {
@@ -1136,7 +1134,7 @@ function triggerAutoTranslate() {
     btn.disabled = true;
     btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Prüfe Status...';
 
-    fetch(`tile_admin.php?action=translation_status&name=${encodeURIComponent(tileName)}`)
+    fetch(`/api/admin/translation-status?name=${encodeURIComponent(tileName)}`, { headers: buildApiHeaders() })
         .then(res => res.json())
         .then(res => {
             let missingLangs = [];

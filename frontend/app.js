@@ -517,7 +517,7 @@ function parseURLForTile() {
                 return s;
             }
         });
-        const ignoredPaths = ['leben', 'index.html', 'index.php'];
+        const ignoredPaths = ['leben', 'index.html'];
         const cleanSegments = pathSegments.filter(s => !ignoredPaths.includes(s.toLowerCase()));
 
         if (cleanSegments.length > 0) {

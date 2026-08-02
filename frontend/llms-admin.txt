@@ -1,129 +1,131 @@
-# Leben App LLM Admin API Specification
+# Leben App LLM Admin API Specification (Go Backend)
 
-> Protected administrative APIs for automated AI tools, content CRUD, vector re-indexing, translation health, and card generation.
+> Protected administrative APIs for automated AI tools, content CRUD, AI translations, task management, image & asset operations, and MCP protocol.
 
 ## Authentication
-Requires active session cookie (`PHPSESSID`) acquired via `POST /admin.php?action=login`.
+Admin operations require authentication via a token acquired through `POST /api/admin/login` or using the configured secret admin token / password.
+
+Authentication headers accepted on protected requests:
+- `Authorization: Bearer <admin_token>`
+- `X-Admin-Token: <admin_token>`
+- `X-Admin-Password: <admin_password>`
 
 ---
 
-## 1. Auth & Status (`/admin.php`)
+## 1. Auth & Status (`/api/admin/login`)
 
-### `POST /admin.php?action=login`
-- **Req**: `password` (string)
-- **Res**: `{"status":"success"|"error","message":string}`
-
-### `GET /admin.php?action=status`
-- **Req**: None
-- **Res**: `{"status":"success","logged_in":boolean}`
-
-### `POST /admin.php?action=logout`
-- **Req**: None
-- **Res**: `{"status":"success","message":string}`
+### `POST /api/admin/login`
+- **Req**: `{"password": "<password>"}` or form data `password=<password>`
+- **Res**: `{"status": "success", "message": "Login successful.", "token": "<admin_token>"}`
 
 ---
 
-## 2. LLM Admin & Health (`/llm_admin.php`)
+## 2. Tile Management & Vector Operations (`/api/admin/tiles`)
 
-### `GET /llm_admin.php?action=status`
-- **Req**: `name` (string, optional tile name filter)
-- **Res**: `{"status":"success","data":{"<tile_name>":{"name":string,"source_language":"de"|"en","effective_source_mtime":string,"has_stale_translation":boolean,"languages":{"<lang>":{"id":int,"language":string,"is_source":boolean,"status":"source"|"up_to_date"|"stale","created_at":string,"updated_at":string,"content_file":string|null,"file_mtime":string|null}}}}}`
-- Returns full translation matrix and flags stale translations (`target.updated_at < effective_source_mtime`)
+### `GET /api/admin/tiles`
+- **Req**: Headers with admin token
+- **Res**: `{"status": "success", "tiles": [...]}`
+- Returns full list of all tiles in database including secret and invisible tiles.
 
-### `POST /llm_admin.php?action=create`
-- **Req**: `name` (str, req), `title` (str, req), `language` ("de"|"en", default "de"), `summary` (str), `html_teaser` (str), `content_file` (str), `tags` (array or CSV), `type` ("doc"|"link"), `link` (str), `accent_color` (hex), `background` (str), `visible` (bool), `sort_order` (int)
-- **Res**: `{"status":"success","message":string,"data":{"id":int,"name":string,"language":string,"title":string,"tags":array,"summary":string,"content_file":string|null}}`
+### `POST /api/admin/tiles` or `PUT /api/admin/tiles`
+- **Req**: JSON object or form data:
+  - `id` (int, optional for update)
+  - `name` (str, required)
+  - `language` ("de"|"en")
+  - `title` (str, required)
+  - `summary` (str)
+  - `html_teaser` (str)
+  - `content_file` (str)
+  - `tags` (array of strings or comma-separated string)
+  - `type` ("doc"|"link")
+  - `link` (str)
+  - `secret` (str)
+  - `accent_color` (hex)
+  - `background` (str)
+  - `visible` (bool)
+  - `sort_order` (int)
+- **Res**: `{"status": "success", "message": "Tile saved successfully.", "tile": object}`
 
-### `POST /llm_admin.php?action=translate`
-- **Req**: `name` (str, req), `target_lang` ("en"|"de", req)
-- **Res**: `{"status":"success","message":string,"data":{"name":string,"source_language":string,"target_language":string,"title":string,"summary":string,"tags":array,"content_file":string|null}}`
+### `DELETE /api/admin/tiles/:id`
+- **Req**: Tile ID path parameter
+- **Res**: `{"status": "success", "message": "Tile deleted."}`
 
----
-
-## 3. Tile CRUD & Vector Operations (`/tile_admin.php`)
-
-### `POST /tile_admin.php?action=save`
-- **Req**: `id` (int, optional for update), `name` (str, req), `language` ("de"|"en"), `title` (str, req), `summary` (str), `html_teaser` (str), `content_file` (str), `tags` (CSV), `type` ("doc"|"link"), `link` (str), `visible` ("true"|"false"), `accent_color` (hex), `background` (str), `sort_order` (int)
-- **Res**: `{"status":"success","message":string}`
-
-### `POST /tile_admin.php?action=delete`
-- **Req**: `id` (int, req)
-- **Res**: `{"status":"success","message":string}`
-
-### `POST /tile_admin.php?action=clone`
-- **Req**: `id` (int, req)
-- **Res**: `{"status":"success","message":string,"clone_name":string}`
-
-### `POST /tile_admin.php?action=toggle_visibility`
-- **Req**: `id` (int, req)
-- **Res**: `{"status":"success","message":string}`
-
-### `POST /tile_admin.php?action=refresh_vectors`
-- **Req**: None
-- **Res**: `{"status":"success","message":string}` (Re-embeds all tiles via Ollama)
-
-### `GET /tile_admin.php?action=translation_status`
-- **Req**: `name` (string, optional tile name)
-- **Res**: `{"status":"success","data":object}`
-
-### `POST /tile_admin.php?action=auto_translate`
-- **Req**: `name` (str, req), `target_lang` ("all"|"en"|"de")
-- **Res**: `{"status":"success","message":string,"data":object}`
+### `POST /api/admin/tiles/:name/translate`
+- **Req**: Query or form parameter `target_lang` ("de"|"en"|"all", default "all")
+- **Res**: `{"status": "success", "message": "Translation task started for card '...'", "task": {"id": string, "type": string, "status": string, ...}}`
+- Triggers asynchronous translation task in the background.
 
 ---
 
-## 4. Content & LLM Helper APIs (`/content_admin.php`)
+## 3. Background Task Management (`/api/admin/tasks`)
 
-### `GET /content_admin.php?action=get_content_file`
-- **Req**: `file` (string, e.g. `finance_de.html`)
-- **Res**: `{"status":"success","content":string,"mtime":int}`
+### `GET /api/admin/tasks`
+- **Res**: `{"status": "success", "tasks": [{"id": string, "type": string, "target": string, "status": string, "error": string, "created_at": string, "updated_at": string}]}`
 
-### `POST /content_admin.php?action=save_content_file`
-- **Req**: `file` (string), `content` (string), `expected_mtime` (int, optional)
-- **Res**: `{"status":"success","message":string,"mtime":int}`
-
-### `POST /content_admin.php?action=suggest_meta`
-- **Req**: `name` (str), `title` (str), `language` ("de"|"en"), `content_file` (str) OR `html_teaser` (str)
-- **Res**: `{"status":"success","data":{"summary":string,"tags":string[]}}`
-
-### `POST /content_admin.php?action=edit_html_with_llm`
-- **Req**: `prompt` (string instruction), `html_teaser` (string)
-- **Res**: `{"status":"success","html_teaser":string}`
+### `POST /api/admin/tasks/:id/cancel`
+- **Req**: Task ID path parameter
+- **Res**: `{"status": "success", "message": "Task '<id>' cancelled successfully."}`
 
 ---
 
-## 5. Image & Asset Operations (`/image_admin.php`, `/asset_admin.php`) & Configuration (`/admin.php`)
+## 4. Content & LLM Helper APIs (`/api/admin/content`)
 
-### `GET /image_admin.php?action=list_images`
-- **Res**: `{"status":"success","images":[{"name":string,"size":int,"url":string}]}`
+### `GET /api/admin/content/:file`
+- **Req**: Filename path parameter (e.g. `finance_de.html`)
+- **Res**: `{"status": "success", "content": string, "mtime": int64}`
 
-### `POST /image_admin.php?action=upload_image`
-- **Req**: `multipart/form-data` with `image` file
-- **Res**: `{"status":"success","message":string,"image":{"name":string,"url":string}}`
+### `POST /api/admin/content/:file`
+- **Req**: JSON `{"content": string, "expected_mtime": int64}` or form parameter `content`
+- **Res**: `{"status": "success", "message": "File saved successfully.", "mtime": int64}`
 
-### `POST /image_admin.php?action=rename_image`
-- **Req**: `old_name` (string), `new_name` (string)
-- **Res**: `{"status":"success","message":string,"new_name":string}`
+### `POST /api/admin/content-suggest-meta`
+- **Req**: JSON `{"name": string, "title": string, "content_file": string, "html_teaser": string}`
+- **Res**: `{"status": "success", "data": {"summary": string, "tags": string[]}}`
 
-### `POST /image_admin.php?action=delete_image`
-- **Req**: `name` (string)
-- **Res**: `{"status":"success","message":string}`
+### `POST /api/admin/content-edit-html`
+- **Req**: JSON `{"prompt": string instruction, "html_teaser": string}`
+- **Res**: `{"status": "success", "html_teaser": string}`
 
-### `GET /asset_admin.php?action=list_assets`
-- **Res**: `{"status":"success","assets":[{"name":string,"size":int,"mtime":int,"url":string}]}`
+---
 
-### `POST /asset_admin.php?action=upload_asset`
-- **Req**: `multipart/form-data` with `asset` file, `overwrite` (bool, optional)
-- **Res**: `{"status":"success","message":string,"asset":{"name":string,"size":int,"mtime":int,"url":string}}`
+## 5. Image & Asset Operations (`/api/admin/images`, `/api/admin/assets`)
 
-### `POST /asset_admin.php?action=rename_asset`
-- **Req**: `old_name` (string), `new_name` (string)
-- **Res**: `{"status":"success","message":string,"new_name":string}`
+### `GET /api/admin/images`
+- **Res**: `{"status": "success", "files": [{"name": string, "size": int64, "mtime": int64}]}`
 
-### `POST /asset_admin.php?action=delete_asset`
-- **Req**: `name` (string)
-- **Res**: `{"status":"success","message":string}`
+### `POST /api/admin/images/upload`
+- **Req**: `multipart/form-data` with `file`
+- **Res**: `{"status": "success", "message": "File uploaded successfully.", "name": string}`
 
-### `POST /admin.php?action=save_config`
-- **Req**: `config_json` (valid JSON string)
-- **Res**: `{"status":"success","message":string}`
+### `POST /api/admin/images/rename`
+- **Req**: JSON `{"old_name": string, "new_name": string}`
+- **Res**: `{"status": "success", "message": "File renamed successfully."}`
+
+### `DELETE /api/admin/images/:name`
+- **Req**: Image filename path parameter
+- **Res**: `{"status": "success", "message": "File deleted."}`
+
+### `GET /api/admin/assets`
+- **Res**: `{"status": "success", "files": [{"name": string, "size": int64, "mtime": int64}]}`
+
+### `POST /api/admin/assets/upload`
+- **Req**: `multipart/form-data` with `file`
+- **Res**: `{"status": "success", "message": "File uploaded successfully.", "name": string}`
+
+### `POST /api/admin/assets/rename`
+- **Req**: JSON `{"old_name": string, "new_name": string}`
+- **Res**: `{"status": "success", "message": "File renamed successfully."}`
+
+### `DELETE /api/admin/assets/:name`
+- **Req**: Asset filename path parameter
+- **Res**: `{"status": "success", "message": "File deleted."}`
+
+---
+
+## 6. Model Context Protocol (MCP Server Endpoint `/mcp`)
+
+### `GET /mcp`
+- Standard MCP SSE (Server-Sent Events) endpoint or JSON-RPC message endpoint.
+
+### `POST /mcp`
+- HTTP JSON-RPC 2.0 endpoint for MCP client tool execution (`search_tiles`, `get_similar_tiles`, `get_tile`, `translate_tile`, `get_task_status`, `cancel_task`, `save_content_file`).

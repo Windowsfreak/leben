@@ -2,22 +2,26 @@
 
 > Vector search engine and curated doc API for Björn Eberhardt's portfolio page.
 
-## Public LLM Endpoint: /llm.php
+## Public LLM Endpoint: /api/tiles
 
 ### Query Parameters with default values
 - q="": Vector search query string (examples: 'contact', 'vision', 'sport', 'finance', '2025 piano concert')
-- name="": Alternative parameter for card similarity search (e.g. name=finance returns cards semantically similar to 'finance')
-- Omitting q and name lists all cards in curated order
-- skip=0: Number of cards to skip for pagination
-- limit=20: Number of cards to return
-- lang=en: Language preference (e.g. 'de')
-- format=snippet: Output detail level
+- similar="": Alternative parameter for card similarity search (e.g. similar=finance returns cards semantically similar to 'finance')
+- Omitting q and similar lists all cards in curated order
+- offset=0: Number of cards to skip for pagination
+- limit=20: Number of cards to return (set limit=0 to return all cards)
+- lang=de: Language preference ('de' or 'en')
+- detail=snippet: Output detail level
   - min: metadata (name, tags, type, score, date)
   - snippet: metadata + short summary cropped to 70 chars
   - summary: metadata + full high-level summary
-  - full: metadata + full summary + full HTML doc partial body
-- crop=0: Optional character count limit for summary/doc
-- output=toon: change to json for JSON output instead of TOON text format
+  - full: metadata + full summary + full article body / HTML teaser / link
+- format=json: Response format ('json' or 'toon'). Can also be set via HTTP header `Accept: text/x-toon`
+- crop=0: Optional character count limit for summary/doc (default 70 when detail=snippet and crop=0)
+
+### Single Tile Endpoints
+- `GET /api/tiles/:name?lang=de`: Fetch details for a specific card by name
+- `GET /api/tiles/:name/versions`: Fetch available language versions for a specific card
 
 ### Card Reference Types
 - doc(size): HTML partial on server
@@ -28,12 +32,13 @@
 - 0.80 - 0.99: High relevance
 
 ### Example API Queries
-- Vector Search: /llm.php?q=finance+investments&limit=3&lang=de
-- Similarity Search by Card: /llm.php?name=finance&limit=3&lang=de
-- Explore All Cards: /llm.php?limit=0&format=min&lang=en
-- Full document: /llm.php?q=vision&limit=1&format=full&crop=4000&lang=en
+- Vector Search: `/api/tiles?q=finance+investments&limit=3&lang=de`
+- Similarity Search by Card: `/api/tiles?similar=finance&limit=3&lang=de`
+- Explore All Cards: `/api/tiles?limit=0&detail=min&lang=en`
+- Full document: `/api/tiles?q=vision&limit=1&detail=full&crop=4000&lang=en`
+- TOON Text Format: `/api/tiles?q=vision&format=toon`
 
 ---
 
 ## Admin Endpoints (/llms-admin.txt)
-For administrative capabilities (CRUD, maintenance), see [/llms-admin.txt](/llms-admin.txt).
+For administrative capabilities (CRUD, translation, background tasks, assets), see [/llms-admin.txt](/llms-admin.txt).

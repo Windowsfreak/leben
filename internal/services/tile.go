@@ -513,3 +513,61 @@ func (s *TileService) GetTranslationStatus(ctx context.Context, tileName string)
 
 	return matrix, nil
 }
+
+func (s *TileService) ToggleVisibility(ctx context.Context, id int) error {
+	_, err := s.database.ExecContext(ctx, "UPDATE tiles SET visible = NOT visible, updated_at = CURRENT_TIMESTAMP WHERE id = $1", id)
+	return err
+}
+
+func (s *TileService) CloneTile(ctx context.Context, id int) (*models.Tile, error) {
+	var orig models.Tile
+	sqlQuery := `
+		SELECT id, name, language, tags, title, html_teaser, summary, link, type, content_file, visible, secret, accent_color, background, sort_order
+		FROM tiles WHERE id = $1
+	`
+	var tagsStr sql.NullString
+	var link, contentFile, background sql.NullString
+	err := s.database.QueryRowContext(ctx, sqlQuery, id).Scan(
+		&orig.ID, &orig.Name, &orig.Language, &tagsStr, &orig.Title, &orig.HTMLTeaser, &orig.Summary,
+		&link, &orig.Type, &contentFile, &orig.Visible, &orig.Secret, &orig.AccentColor, &orig.Background, &orig.SortOrder,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if tagsStr.Valid {
+		orig.Tags = db.PostgresToTags(tagsStr.String)
+	}
+	if link.Valid {
+		orig.Link = link.String
+	}
+	if contentFile.Valid {
+		orig.ContentFile = contentFile.String
+	}
+	if background.Valid {
+		orig.Background = background.String
+	}
+
+	clone := orig
+	clone.ID = 0
+	clone.Name = orig.Name + "-copy"
+	clone.Title = orig.Title + " (Copy)"
+	if err := s.SaveTile(ctx, &clone); err != nil {
+		return nil, err
+	}
+	return &clone, nil
+}
+
+func (s *TileService) RefreshVectors(ctx context.Context) (int, error) {
+	allTiles, err := s.GetAllTiles(ctx)
+	if err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, t := range allTiles {
+		if err := s.SaveTile(ctx, t); err == nil {
+			count++
+		}
+	}
+	return count, nil
+}
+

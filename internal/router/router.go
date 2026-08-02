@@ -87,7 +87,12 @@ func (r *Router) setupRoutes() {
 	r.router.POST("/api/admin/tiles", r.wrapAuth(r.handleAdminSaveTile))
 	r.router.PUT("/api/admin/tiles", r.wrapAuth(r.handleAdminSaveTile))
 	r.router.DELETE("/api/admin/tiles/:id", r.wrapAuth(r.handleAdminDeleteTile))
+	r.router.POST("/api/admin/tiles/:id/toggle-visibility", r.wrapAuth(r.handleAdminToggleVisibility))
+	r.router.POST("/api/admin/tiles/:id/clone", r.wrapAuth(r.handleAdminCloneTile))
 	r.router.POST("/api/admin/tiles/:name/translate", r.wrapAuth(r.handleAdminTranslateTile))
+	r.router.POST("/api/admin/tiles/refresh-vectors", r.wrapAuth(r.handleAdminRefreshVectors))
+	r.router.GET("/api/admin/translation-status", r.wrapAuth(r.handleAdminGetTranslationStatus))
+	r.router.POST("/api/admin/config", r.wrapAuth(r.handleAdminSaveConfig))
 
 	r.router.GET("/api/admin/tasks", r.wrapAuth(r.handleAdminGetTasks))
 	r.router.POST("/api/admin/tasks/:id/cancel", r.wrapAuth(r.handleAdminCancelTask))
@@ -771,3 +776,104 @@ func writeError(w http.ResponseWriter, code int, msg string) {
 		"message": msg,
 	})
 }
+
+func (r *Router) handleAdminSaveConfig(w http.ResponseWriter, req *http.Request) {
+	var body struct {
+		ConfigJSON string `json:"config_json"`
+	}
+	if strings.Contains(req.Header.Get("Content-Type"), "application/json") {
+		_ = json.NewDecoder(req.Body).Decode(&body)
+	} else {
+		body.ConfigJSON = req.FormValue("config_json")
+	}
+
+	if body.ConfigJSON == "" {
+		writeError(w, http.StatusBadRequest, "No config_json provided.")
+		return
+	}
+
+	var js json.RawMessage
+	if err := json.Unmarshal([]byte(body.ConfigJSON), &js); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON structure.")
+		return
+	}
+
+	destPath := filepath.Join(r.cfg.Server.WebDir, "config.json")
+	if err := os.WriteFile(destPath, []byte(body.ConfigJSON), 0644); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":  "success",
+		"message": "Configuration saved successfully.",
+	})
+}
+
+func (r *Router) handleAdminGetTranslationStatus(w http.ResponseWriter, req *http.Request) {
+	name := req.URL.Query().Get("name")
+	matrix, err := r.tileSvc.GetTranslationStatus(req.Context(), name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if name != "" {
+		if tileData, ok := matrix[name]; ok {
+			writeJSON(w, http.StatusOK, map[string]any{
+				"status": "success",
+				"data":   tileData,
+			})
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "success",
+		"data":   matrix,
+	})
+}
+
+func (r *Router) handleAdminRefreshVectors(w http.ResponseWriter, req *http.Request) {
+	count, err := r.tileSvc.RefreshVectors(req.Context())
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":  "success",
+		"message": fmt.Sprintf("Vectors refreshed successfully for %d tiles.", count),
+	})
+}
+
+func (r *Router) handleAdminToggleVisibility(w http.ResponseWriter, req *http.Request) {
+	ps := httprouter.ParamsFromContext(req.Context())
+	id, err := strconv.Atoi(ps.ByName("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid tile ID.")
+		return
+	}
+	if err := r.tileSvc.ToggleVisibility(req.Context(), id); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "success", "message": "Tile visibility toggled."})
+}
+
+func (r *Router) handleAdminCloneTile(w http.ResponseWriter, req *http.Request) {
+	ps := httprouter.ParamsFromContext(req.Context())
+	id, err := strconv.Atoi(ps.ByName("id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid tile ID.")
+		return
+	}
+	clone, err := r.tileSvc.CloneTile(req.Context(), id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":     "success",
+		"message":    "Tile cloned successfully.",
+		"clone_name": clone.Name,
+	})
+}
+
