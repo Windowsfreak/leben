@@ -46,14 +46,25 @@ Authentication headers accepted on protected requests:
   - `sort_order` (int)
 - **Res**: `{"status": "success", "message": "Tile saved successfully.", "tile": object}`
 
-### `DELETE /api/admin/tiles/:id`
+### `DELETE /api/admin/tile/:id` (or `/api/admin/tiles/:id`)
 - **Req**: Tile ID path parameter
 - **Res**: `{"status": "success", "message": "Tile deleted."}`
 
-### `POST /api/admin/tiles/:name/translate`
+### `POST /api/admin/tile/:id/toggle-visibility`
+- **Req**: Tile ID path parameter
+- **Res**: `{"status": "success", "message": "Tile visibility toggled."}`
+
+### `POST /api/admin/tile/:id/clone`
+- **Req**: Tile ID path parameter
+- **Res**: `{"status": "success", "message": "Tile cloned successfully.", "clone_name": string}`
+
+### `POST /api/admin/tile/:name/translate` (or `/api/admin/tile/:id/translate`)
 - **Req**: Query or form parameter `target_lang` ("de"|"en"|"all", default "all")
 - **Res**: `{"status": "success", "message": "Translation task started for card '...'", "task": {"id": string, "type": string, "status": string, ...}}`
 - Triggers asynchronous translation task in the background.
+
+### `POST /api/admin/tiles/refresh-vectors`
+- **Res**: `{"status": "success", "message": "Vectors refreshed successfully for N tiles."}`
 
 ---
 

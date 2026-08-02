@@ -86,11 +86,13 @@ func (r *Router) setupRoutes() {
 	r.router.GET("/api/admin/tiles", r.wrapAuth(r.handleAdminGetAllTiles))
 	r.router.POST("/api/admin/tiles", r.wrapAuth(r.handleAdminSaveTile))
 	r.router.PUT("/api/admin/tiles", r.wrapAuth(r.handleAdminSaveTile))
-	r.router.DELETE("/api/admin/tiles/:id", r.wrapAuth(r.handleAdminDeleteTile))
-	r.router.POST("/api/admin/tiles/:id/toggle-visibility", r.wrapAuth(r.handleAdminToggleVisibility))
-	r.router.POST("/api/admin/tiles/:id/clone", r.wrapAuth(r.handleAdminCloneTile))
-	r.router.POST("/api/admin/tiles/:name/translate", r.wrapAuth(r.handleAdminTranslateTile))
 	r.router.POST("/api/admin/tiles/refresh-vectors", r.wrapAuth(r.handleAdminRefreshVectors))
+
+	r.router.DELETE("/api/admin/tile/:id", r.wrapAuth(r.handleAdminDeleteTile))
+	r.router.DELETE("/api/admin/tiles/:id", r.wrapAuth(r.handleAdminDeleteTile))
+	r.router.POST("/api/admin/tile/:id/toggle-visibility", r.wrapAuth(r.handleAdminToggleVisibility))
+	r.router.POST("/api/admin/tile/:id/clone", r.wrapAuth(r.handleAdminCloneTile))
+	r.router.POST("/api/admin/tile/:id/translate", r.wrapAuth(r.handleAdminTranslateTile))
 	r.router.GET("/api/admin/translation-status", r.wrapAuth(r.handleAdminGetTranslationStatus))
 	r.router.POST("/api/admin/config", r.wrapAuth(r.handleAdminSaveConfig))
 
@@ -425,7 +427,10 @@ func (r *Router) handleAdminDeleteTile(w http.ResponseWriter, req *http.Request)
 
 func (r *Router) handleAdminTranslateTile(w http.ResponseWriter, req *http.Request) {
 	ps := httprouter.ParamsFromContext(req.Context())
-	name := ps.ByName("name")
+	name := ps.ByName("id")
+	if name == "" {
+		name = ps.ByName("name")
+	}
 	targetLang := req.URL.Query().Get("target_lang")
 	if targetLang == "" {
 		targetLang = req.FormValue("target_lang")

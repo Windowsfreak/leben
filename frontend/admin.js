@@ -567,7 +567,7 @@ function saveTile(syncSiblings = false) {
 
 // Quick action: Toggle visibility flag of a tile
 function toggleVisibility(id) {
-    fetch(`/api/admin/tiles/${id}/toggle-visibility`, {
+    fetch(`/api/admin/tile/${id}/toggle-visibility`, {
         method: 'POST',
         headers: buildApiHeaders()
     })
@@ -582,7 +582,7 @@ function toggleVisibility(id) {
 
 // Quick action: Clone an existing tile
 function cloneTile(id) {
-    fetch(`/api/admin/tiles/${id}/clone`, {
+    fetch(`/api/admin/tile/${id}/clone`, {
         method: 'POST',
         headers: buildApiHeaders()
     })
@@ -1161,9 +1161,9 @@ function triggerAutoTranslate() {
             formData.append('name', tileName);
             formData.append('target_lang', 'all');
 
-            return fetch(`/api/admin/tiles/${encodeURIComponent(tileName)}/translate`, {
+            return fetch(`/api/admin/tile/${encodeURIComponent(tileName)}/translate`, {
                 method: 'POST',
-                headers: typeof getAdminHeaders === 'function' ? getAdminHeaders() : {},
+                headers: buildApiHeaders(),
                 body: formData
             })
                 .then(res => res.json())
