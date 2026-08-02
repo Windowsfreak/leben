@@ -40,60 +40,89 @@ Requires active session cookie (`PHPSESSID`) acquired via `POST /admin.php?actio
 
 ---
 
-## 3. Tile CRUD & Vector Operations (`/admin.php`)
+## 3. Tile CRUD & Vector Operations (`/tile_admin.php`)
 
-### `POST /admin.php?action=save`
+### `POST /tile_admin.php?action=save`
 - **Req**: `id` (int, optional for update), `name` (str, req), `language` ("de"|"en"), `title` (str, req), `summary` (str), `html_teaser` (str), `content_file` (str), `tags` (CSV), `type` ("doc"|"link"), `link` (str), `visible` ("true"|"false"), `accent_color` (hex), `background` (str), `sort_order` (int)
 - **Res**: `{"status":"success","message":string}`
 
-### `POST /admin.php?action=delete`
+### `POST /tile_admin.php?action=delete`
 - **Req**: `id` (int, req)
 - **Res**: `{"status":"success","message":string}`
 
-### `POST /admin.php?action=clone`
+### `POST /tile_admin.php?action=clone`
 - **Req**: `id` (int, req)
 - **Res**: `{"status":"success","message":string,"clone_name":string}`
 
-### `POST /admin.php?action=toggle_visibility`
+### `POST /tile_admin.php?action=toggle_visibility`
 - **Req**: `id` (int, req)
 - **Res**: `{"status":"success","message":string}`
 
-### `POST /admin.php?action=refresh_vectors`
+### `POST /tile_admin.php?action=refresh_vectors`
 - **Req**: None
 - **Res**: `{"status":"success","message":string}` (Re-embeds all tiles via Ollama)
 
+### `GET /tile_admin.php?action=translation_status`
+- **Req**: `name` (string, optional tile name)
+- **Res**: `{"status":"success","data":object}`
+
+### `POST /tile_admin.php?action=auto_translate`
+- **Req**: `name` (str, req), `target_lang` ("all"|"en"|"de")
+- **Res**: `{"status":"success","message":string,"data":object}`
+
 ---
 
-## 4. Content & LLM Helper APIs (`/admin.php`)
+## 4. Content & LLM Helper APIs (`/content_admin.php`)
 
-### `GET /admin.php?action=get_content_file`
+### `GET /content_admin.php?action=get_content_file`
 - **Req**: `file` (string, e.g. `finance_de.html`)
-- **Res**: `{"status":"success","content":string}`
+- **Res**: `{"status":"success","content":string,"mtime":int}`
 
-### `POST /admin.php?action=save_content_file`
-- **Req**: `file` (string), `content` (string)
-- **Res**: `{"status":"success","message":string}`
+### `POST /content_admin.php?action=save_content_file`
+- **Req**: `file` (string), `content` (string), `expected_mtime` (int, optional)
+- **Res**: `{"status":"success","message":string,"mtime":int}`
 
-### `POST /admin.php?action=suggest_meta`
+### `POST /content_admin.php?action=suggest_meta`
 - **Req**: `name` (str), `title` (str), `language` ("de"|"en"), `content_file` (str) OR `html_teaser` (str)
 - **Res**: `{"status":"success","data":{"summary":string,"tags":string[]}}`
-- You really don't need this if you are a LLM.
 
-### `POST /admin.php?action=edit_html_with_llm`
+### `POST /content_admin.php?action=edit_html_with_llm`
 - **Req**: `prompt` (string instruction), `html_teaser` (string)
 - **Res**: `{"status":"success","html_teaser":string}`
-- You really don't need this if you are a LLM.
 
 ---
 
-## 5. Assets & Configuration (`/admin.php`)
+## 5. Image & Asset Operations (`/image_admin.php`, `/asset_admin.php`) & Configuration (`/admin.php`)
 
-### `GET /admin.php?action=list_images`
+### `GET /image_admin.php?action=list_images`
 - **Res**: `{"status":"success","images":[{"name":string,"size":int,"url":string}]}`
 
-### `POST /admin.php?action=upload_image`
+### `POST /image_admin.php?action=upload_image`
 - **Req**: `multipart/form-data` with `image` file
 - **Res**: `{"status":"success","message":string,"image":{"name":string,"url":string}}`
+
+### `POST /image_admin.php?action=rename_image`
+- **Req**: `old_name` (string), `new_name` (string)
+- **Res**: `{"status":"success","message":string,"new_name":string}`
+
+### `POST /image_admin.php?action=delete_image`
+- **Req**: `name` (string)
+- **Res**: `{"status":"success","message":string}`
+
+### `GET /asset_admin.php?action=list_assets`
+- **Res**: `{"status":"success","assets":[{"name":string,"size":int,"mtime":int,"url":string}]}`
+
+### `POST /asset_admin.php?action=upload_asset`
+- **Req**: `multipart/form-data` with `asset` file, `overwrite` (bool, optional)
+- **Res**: `{"status":"success","message":string,"asset":{"name":string,"size":int,"mtime":int,"url":string}}`
+
+### `POST /asset_admin.php?action=rename_asset`
+- **Req**: `old_name` (string), `new_name` (string)
+- **Res**: `{"status":"success","message":string,"new_name":string}`
+
+### `POST /asset_admin.php?action=delete_asset`
+- **Req**: `name` (string)
+- **Res**: `{"status":"success","message":string}`
 
 ### `POST /admin.php?action=save_config`
 - **Req**: `config_json` (valid JSON string)

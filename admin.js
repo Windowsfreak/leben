@@ -528,7 +528,7 @@ function saveTile(syncSiblings = false) {
     if (syncBtn) syncBtn.disabled = true;
     targetBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Speichere...';
     
-    fetch('admin.php?action=save', {
+    fetch('tile_admin.php?action=save', {
         method: 'POST',
         body: formData
     })
@@ -562,7 +562,7 @@ function toggleVisibility(id) {
     const formData = new FormData();
     formData.append('id', id);
     
-    fetch('admin.php?action=toggle_visibility', {
+    fetch('tile_admin.php?action=toggle_visibility', {
         method: 'POST',
         body: formData
     })
@@ -580,7 +580,7 @@ function cloneTile(id) {
     const formData = new FormData();
     formData.append('id', id);
     
-    fetch('admin.php?action=clone', {
+    fetch('tile_admin.php?action=clone', {
         method: 'POST',
         body: formData
     })
@@ -604,7 +604,7 @@ function deleteTile(id, title) {
     const formData = new FormData();
     formData.append('id', id);
     
-    fetch('admin.php?action=delete', {
+    fetch('tile_admin.php?action=delete', {
         method: 'POST',
         body: formData
     })
@@ -762,7 +762,7 @@ function initAdmin() {
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generiere...';
 
-        fetch('admin.php?action=refresh_vectors', { method: 'POST' })
+        fetch('tile_admin.php?action=refresh_vectors', { method: 'POST' })
             .then(res => res.json())
             .then(res => {
                 if (res.status === 'success') {
@@ -956,7 +956,7 @@ function initAdmin() {
         formData.append('prompt', promptText);
         formData.append('html_teaser', currentHtml);
         
-        fetch('admin.php?action=edit_html_with_llm', {
+        fetch('content_admin.php?action=edit_html_with_llm', {
             method: 'POST',
             body: formData
         })
@@ -1021,7 +1021,7 @@ function initAdmin() {
         formData.append('content_file', contentFile);
         formData.append('html_teaser', htmlContent);
         
-        fetch('admin.php?action=suggest_meta', {
+        fetch('content_admin.php?action=suggest_meta', {
             method: 'POST',
             body: formData
         })
@@ -1071,7 +1071,7 @@ let translationStatusMap = {};
 
 function fetchTranslationStatuses() {
     if (!isAdmin) return;
-    fetch('admin.php?action=translation_status')
+    fetch('tile_admin.php?action=translation_status')
         .then(res => res.json())
         .then(res => {
             if (res.status === 'success') {
@@ -1127,7 +1127,7 @@ function triggerAutoTranslate() {
     btn.disabled = true;
     btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Prüfe Status...';
 
-    fetch(`admin.php?action=translation_status&name=${encodeURIComponent(tileName)}`)
+    fetch(`tile_admin.php?action=translation_status&name=${encodeURIComponent(tileName)}`)
         .then(res => res.json())
         .then(res => {
             let missingLangs = [];
@@ -1154,7 +1154,7 @@ function triggerAutoTranslate() {
             formData.append('name', tileName);
             formData.append('target_lang', 'all');
 
-            return fetch('admin.php?action=auto_translate', {
+            return fetch('tile_admin.php?action=auto_translate', {
                 method: 'POST',
                 body: formData
             })
@@ -1276,7 +1276,7 @@ function openLightboxEditor(tile) {
     
     let contentPromise;
     if (tile.content_file) {
-        contentPromise = fetch(`admin.php?action=get_content_file&file=${encodeURIComponent(tile.content_file)}`)
+        contentPromise = fetch(`content_admin.php?action=get_content_file&file=${encodeURIComponent(tile.content_file)}`)
             .then(res => {
                 if (!res.ok) throw new Error("Network response error loading file");
                 return res.json();
@@ -1338,11 +1338,11 @@ function saveLightboxEditor() {
     let url = '';
     
     if (file) {
-        url = 'admin.php?action=save_content_file';
+        url = 'content_admin.php?action=save_content_file';
         formData.append('file', file);
         formData.append('content', htmlContent);
     } else {
-        url = 'admin.php?action=save_tile_html';
+        url = 'tile_admin.php?action=save_tile_html';
         formData.append('id', id);
         formData.append('html_teaser', htmlContent);
     }
@@ -1428,7 +1428,7 @@ function loadImagePickerFiles() {
     const grid = document.getElementById('imagePickerGrid');
     grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 2rem;"><i class="fa-solid fa-spinner fa-spin" style="font-size: 2rem; color: var(--accent);"></i></div>';
     
-    fetch('admin.php?action=list_images')
+    fetch('image_admin.php?action=list_images')
         .then(res => res.json())
         .then(res => {
             if (res.status !== 'success') {
@@ -1511,7 +1511,7 @@ function handleImageUpload(e) {
     uploadCard.innerHTML = '<i class="fa-solid fa-spinner fa-spin" style="font-size: 2rem; color: var(--accent);"></i><span style="font-size: 0.8rem; margin-top: 0.5rem;">Verarbeite...</span>';
     uploadCard.style.pointerEvents = 'none';
     
-    fetch('admin.php?action=upload_image', {
+    fetch('image_admin.php?action=upload_image', {
         method: 'POST',
         body: formData
     })
@@ -1558,7 +1558,7 @@ function performRenameImageAction(oldName, newName) {
     formData.append('old_name', oldName);
     formData.append('new_name', newName);
     
-    fetch('admin.php?action=rename_image', {
+    fetch('image_admin.php?action=rename_image', {
         method: 'POST',
         body: formData
     })
@@ -1585,7 +1585,7 @@ function deleteImage(filename) {
     const formData = new FormData();
     formData.append('name', filename);
     
-    fetch('admin.php?action=delete_image', {
+    fetch('image_admin.php?action=delete_image', {
         method: 'POST',
         body: formData
     })
