@@ -1,0 +1,31 @@
+server:
+  port: 8088
+  host: "0.0.0.0"
+  socket: "" # Optional Unix socket path (e.g. "/var/run/leben.sock")
+  web_dir: "./frontend"
+
+database:
+  host: "127.0.0.1"
+  port: 5433
+  dbname: "leben"
+  user: "postgres"
+  password: "postgrespassword"
+  sslmode: "disable"
+
+embedding:
+  url: "http://localhost:11434"
+  model: "nomic-embed-text-v2-moe:latest"
+  query_prefix: "search_query: "
+  doc_prefix: "search_document: "
+
+llm:
+  url: "http://localhost:3001"
+  model: "auto"
+  user: ""
+  pass: ""
+
+admin:
+  # Default password hash for 'admin123'
+  password_hash: "$2y$10$.8UcGLDKeZDoCLVZjNSac.7vwrMVwj1QLZLhQOLDSH5Ywo14QRhp2"
+  # Master admin secret token for API Authorization header
+  secret_token: "leben_admin_secret_token_change_me"

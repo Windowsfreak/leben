@@ -1,12 +1,32 @@
-.htaccess
-router.php
-config.json
-config.php
-db_setup.php
-assets/
-content/
-tileimg/
-img/
-*.jpg
-*.JPEG
-*.vcf
+# Go build artifacts
+/build/
+*.exe
+*.exe?
+*.dll
+*.so
+*.dylib
+
+# Runtime config & sockets
+config.yml
+*.sock
+
+# OS & Environment files
+.DS_Store
+Thumbs.db
+*.log
+
+# Frontend rules & legacy files
+frontend/.htaccess
+frontend/router.php
+frontend/config.json
+frontend/config.php
+frontend/db_setup.php
+
+# Frontend dynamic assets & content
+frontend/assets/
+frontend/content/
+frontend/tileimg/
+frontend/img/
+frontend/*.jpg
+frontend/*.JPEG
+frontend/*.vcf
