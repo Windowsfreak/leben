@@ -20,6 +20,24 @@ if (!$is_admin) {
 
 try {
     switch ($action) {
+        case 'get_all_contents':
+            $dir = __DIR__ . '/content';
+            $files = glob($dir . '/*.html');
+            $contents = [];
+            foreach ($files as $f) {
+                $bname = basename($f);
+                $contents[$bname] = [
+                    'content' => file_get_contents($f),
+                    'mtime' => filemtime($f)
+                ];
+            }
+            echo json_encode([
+                'status' => 'success',
+                'count' => count($contents),
+                'files' => $contents
+            ]);
+            break;
+
         case 'get_content_file':
             $file = $_GET['file'] ?? '';
             if (!preg_match('/^[a-zA-Z0-9_\-\.]+\.html$/', $file)) {

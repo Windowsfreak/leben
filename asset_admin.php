@@ -18,6 +18,7 @@ try {
     switch ($action) {
         case 'list_assets':
             $dir = __DIR__ . '/assets';
+            $include_data = !empty($_GET['include_data']);
             if (!is_dir($dir)) {
                 mkdir($dir, 0755, true);
             }
@@ -25,12 +26,16 @@ try {
             $assets = [];
             foreach ($files as $file) {
                 if (is_file($file) && basename($file) !== '.gitignore') {
-                    $assets[] = [
+                    $item = [
                         'name' => basename($file),
                         'size' => filesize($file),
                         'mtime' => filemtime($file),
                         'url' => './assets/' . basename($file)
                     ];
+                    if ($include_data) {
+                        $item['data_b64'] = base64_encode(file_get_contents($file));
+                    }
+                    $assets[] = $item;
                 }
             }
             usort($assets, function($a, $b) {

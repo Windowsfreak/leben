@@ -20,17 +20,23 @@ try {
     switch ($action) {
         case 'list_images':
             $dir = __DIR__ . '/tileimg';
+            $include_data = !empty($_GET['include_data']);
             if (!is_dir($dir)) {
                 mkdir($dir, 0755, true);
             }
             $files = glob($dir . '/*.{webp,WEBP,png,PNG,jpg,jpeg,JPG,JPEG,gif,GIF,svg,SVG}', GLOB_BRACE);
             $images = [];
             foreach ($files as $file) {
-                $images[] = [
+                $item = [
                     'name' => basename($file),
                     'size' => filesize($file),
+                    'mtime' => filemtime($file),
                     'url' => './tileimg/' . basename($file)
                 ];
+                if ($include_data) {
+                    $item['data_b64'] = base64_encode(file_get_contents($file));
+                }
+                $images[] = $item;
             }
             usort($images, function($a, $b) {
                 return strcasecmp($a['name'], $b['name']);
