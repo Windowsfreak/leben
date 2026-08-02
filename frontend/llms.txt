@@ -1,0 +1,39 @@
+# Björn Eberhardt – Leben
+
+> Vector search engine and curated doc API for Björn Eberhardt's portfolio page.
+
+## Public LLM Endpoint: /llm.php
+
+### Query Parameters with default values
+- q="": Vector search query string (examples: 'contact', 'vision', 'sport', 'finance', '2025 piano concert')
+- name="": Alternative parameter for card similarity search (e.g. name=finance returns cards semantically similar to 'finance')
+- Omitting q and name lists all cards in curated order
+- skip=0: Number of cards to skip for pagination
+- limit=20: Number of cards to return
+- lang=en: Language preference (e.g. 'de')
+- format=snippet: Output detail level
+  - min: metadata (name, tags, type, score, date)
+  - snippet: metadata + short summary cropped to 70 chars
+  - summary: metadata + full high-level summary
+  - full: metadata + full summary + full HTML doc partial body
+- crop=0: Optional character count limit for summary/doc
+- output=toon: change to json for JSON output instead of TOON text format
+
+### Card Reference Types
+- doc(size): HTML partial on server
+- link: external URL
+
+### Similarity Score
+- 1.00: Exact semantic match
+- 0.80 - 0.99: High relevance
+
+### Example API Queries
+- Vector Search: /llm.php?q=finance+investments&limit=3&lang=de
+- Similarity Search by Card: /llm.php?name=finance&limit=3&lang=de
+- Explore All Cards: /llm.php?limit=0&format=min&lang=en
+- Full document: /llm.php?q=vision&limit=1&format=full&crop=4000&lang=en
+
+---
+
+## Admin Endpoints (/llms-admin.txt)
+For administrative capabilities (CRUD, maintenance), see [/llms-admin.txt](/llms-admin.txt).

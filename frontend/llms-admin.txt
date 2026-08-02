@@ -1,0 +1,129 @@
+# Leben App LLM Admin API Specification
+
+> Protected administrative APIs for automated AI tools, content CRUD, vector re-indexing, translation health, and card generation.
+
+## Authentication
+Requires active session cookie (`PHPSESSID`) acquired via `POST /admin.php?action=login`.
+
+---
+
+## 1. Auth & Status (`/admin.php`)
+
+### `POST /admin.php?action=login`
+- **Req**: `password` (string)
+- **Res**: `{"status":"success"|"error","message":string}`
+
+### `GET /admin.php?action=status`
+- **Req**: None
+- **Res**: `{"status":"success","logged_in":boolean}`
+
+### `POST /admin.php?action=logout`
+- **Req**: None
+- **Res**: `{"status":"success","message":string}`
+
+---
+
+## 2. LLM Admin & Health (`/llm_admin.php`)
+
+### `GET /llm_admin.php?action=status`
+- **Req**: `name` (string, optional tile name filter)
+- **Res**: `{"status":"success","data":{"<tile_name>":{"name":string,"source_language":"de"|"en","effective_source_mtime":string,"has_stale_translation":boolean,"languages":{"<lang>":{"id":int,"language":string,"is_source":boolean,"status":"source"|"up_to_date"|"stale","created_at":string,"updated_at":string,"content_file":string|null,"file_mtime":string|null}}}}}`
+- Returns full translation matrix and flags stale translations (`target.updated_at < effective_source_mtime`)
+
+### `POST /llm_admin.php?action=create`
+- **Req**: `name` (str, req), `title` (str, req), `language` ("de"|"en", default "de"), `summary` (str), `html_teaser` (str), `content_file` (str), `tags` (array or CSV), `type` ("doc"|"link"), `link` (str), `accent_color` (hex), `background` (str), `visible` (bool), `sort_order` (int)
+- **Res**: `{"status":"success","message":string,"data":{"id":int,"name":string,"language":string,"title":string,"tags":array,"summary":string,"content_file":string|null}}`
+
+### `POST /llm_admin.php?action=translate`
+- **Req**: `name` (str, req), `target_lang` ("en"|"de", req)
+- **Res**: `{"status":"success","message":string,"data":{"name":string,"source_language":string,"target_language":string,"title":string,"summary":string,"tags":array,"content_file":string|null}}`
+
+---
+
+## 3. Tile CRUD & Vector Operations (`/tile_admin.php`)
+
+### `POST /tile_admin.php?action=save`
+- **Req**: `id` (int, optional for update), `name` (str, req), `language` ("de"|"en"), `title` (str, req), `summary` (str), `html_teaser` (str), `content_file` (str), `tags` (CSV), `type` ("doc"|"link"), `link` (str), `visible` ("true"|"false"), `accent_color` (hex), `background` (str), `sort_order` (int)
+- **Res**: `{"status":"success","message":string}`
+
+### `POST /tile_admin.php?action=delete`
+- **Req**: `id` (int, req)
+- **Res**: `{"status":"success","message":string}`
+
+### `POST /tile_admin.php?action=clone`
+- **Req**: `id` (int, req)
+- **Res**: `{"status":"success","message":string,"clone_name":string}`
+
+### `POST /tile_admin.php?action=toggle_visibility`
+- **Req**: `id` (int, req)
+- **Res**: `{"status":"success","message":string}`
+
+### `POST /tile_admin.php?action=refresh_vectors`
+- **Req**: None
+- **Res**: `{"status":"success","message":string}` (Re-embeds all tiles via Ollama)
+
+### `GET /tile_admin.php?action=translation_status`
+- **Req**: `name` (string, optional tile name)
+- **Res**: `{"status":"success","data":object}`
+
+### `POST /tile_admin.php?action=auto_translate`
+- **Req**: `name` (str, req), `target_lang` ("all"|"en"|"de")
+- **Res**: `{"status":"success","message":string,"data":object}`
+
+---
+
+## 4. Content & LLM Helper APIs (`/content_admin.php`)
+
+### `GET /content_admin.php?action=get_content_file`
+- **Req**: `file` (string, e.g. `finance_de.html`)
+- **Res**: `{"status":"success","content":string,"mtime":int}`
+
+### `POST /content_admin.php?action=save_content_file`
+- **Req**: `file` (string), `content` (string), `expected_mtime` (int, optional)
+- **Res**: `{"status":"success","message":string,"mtime":int}`
+
+### `POST /content_admin.php?action=suggest_meta`
+- **Req**: `name` (str), `title` (str), `language` ("de"|"en"), `content_file` (str) OR `html_teaser` (str)
+- **Res**: `{"status":"success","data":{"summary":string,"tags":string[]}}`
+
+### `POST /content_admin.php?action=edit_html_with_llm`
+- **Req**: `prompt` (string instruction), `html_teaser` (string)
+- **Res**: `{"status":"success","html_teaser":string}`
+
+---
+
+## 5. Image & Asset Operations (`/image_admin.php`, `/asset_admin.php`) & Configuration (`/admin.php`)
+
+### `GET /image_admin.php?action=list_images`
+- **Res**: `{"status":"success","images":[{"name":string,"size":int,"url":string}]}`
+
+### `POST /image_admin.php?action=upload_image`
+- **Req**: `multipart/form-data` with `image` file
+- **Res**: `{"status":"success","message":string,"image":{"name":string,"url":string}}`
+
+### `POST /image_admin.php?action=rename_image`
+- **Req**: `old_name` (string), `new_name` (string)
+- **Res**: `{"status":"success","message":string,"new_name":string}`
+
+### `POST /image_admin.php?action=delete_image`
+- **Req**: `name` (string)
+- **Res**: `{"status":"success","message":string}`
+
+### `GET /asset_admin.php?action=list_assets`
+- **Res**: `{"status":"success","assets":[{"name":string,"size":int,"mtime":int,"url":string}]}`
+
+### `POST /asset_admin.php?action=upload_asset`
+- **Req**: `multipart/form-data` with `asset` file, `overwrite` (bool, optional)
+- **Res**: `{"status":"success","message":string,"asset":{"name":string,"size":int,"mtime":int,"url":string}}`
+
+### `POST /asset_admin.php?action=rename_asset`
+- **Req**: `old_name` (string), `new_name` (string)
+- **Res**: `{"status":"success","message":string,"new_name":string}`
+
+### `POST /asset_admin.php?action=delete_asset`
+- **Req**: `name` (string)
+- **Res**: `{"status":"success","message":string}`
+
+### `POST /admin.php?action=save_config`
+- **Req**: `config_json` (valid JSON string)
+- **Res**: `{"status":"success","message":string}`
