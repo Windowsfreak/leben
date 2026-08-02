@@ -639,7 +639,9 @@ function openLightbox(tile, updateHistory = true) {
 
     // If it points to an HTML content file
     if (tile.content_file) {
-        fetch(`content/${tile.content_file}`)
+        const isAdminSession = (typeof isAdmin !== 'undefined' && isAdmin) || (window.adminScriptLoaded);
+        const cacheBuster = isAdminSession ? `?v=${Date.now()}` : (tile.updated_at ? `?v=${encodeURIComponent(tile.updated_at)}` : `?v=${Date.now()}`);
+        fetch(`content/${tile.content_file}${cacheBuster}`)
             .then(res => {
                 if (!res.ok) throw new Error("File not found");
                 return res.text();

@@ -3,6 +3,7 @@ router.php
 config.json
 config.php
 db_setup.php
+assets/
 content/
 tileimg/
 img/

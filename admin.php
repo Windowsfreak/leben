@@ -449,23 +449,50 @@ try {
             }
             $path = __DIR__ . '/content/' . $file;
             if (!file_exists($path)) {
-                echo json_encode(['status' => 'success', 'content' => '']);
+                echo json_encode(['status' => 'success', 'content' => '', 'mtime' => 0]);
             } else {
-                echo json_encode(['status' => 'success', 'content' => file_get_contents($path)]);
+                echo json_encode([
+                    'status' => 'success',
+                    'content' => file_get_contents($path),
+                    'mtime' => filemtime($path)
+                ]);
             }
             break;
 
         case 'save_content_file':
             $file = $_POST['file'] ?? '';
             $content = $_POST['content'] ?? '';
+            $expected_mtime = isset($_POST['expected_mtime']) ? (int)$_POST['expected_mtime'] : null;
+
             if (!preg_match('/^[a-zA-Z0-9_\-\.]+\.html$/', $file)) {
                 throw new Exception("Invalid file name format.");
             }
             $path = __DIR__ . '/content/' . $file;
+
+            // Conflict check if expected_mtime is provided
+            if (file_exists($path) && $expected_mtime !== null && $expected_mtime > 0) {
+                $actual_mtime = filemtime($path);
+                if ($actual_mtime > $expected_mtime) {
+                    http_response_code(409);
+                    echo json_encode([
+                        'status' => 'error',
+                        'message' => 'Konflikt: Die Inhaltsdatei wurde auf dem Server zwischenzeitlich bearbeitet.',
+                        'actual_mtime' => $actual_mtime,
+                        'expected_mtime' => $expected_mtime
+                    ]);
+                    break;
+                }
+            }
+
             if (file_put_contents($path, $content) === false) {
                 throw new Exception("Failed to write to file.");
             }
-            echo json_encode(['status' => 'success', 'message' => 'File saved successfully.']);
+            clearstatcache(true, $path);
+            echo json_encode([
+                'status' => 'success',
+                'message' => 'File saved successfully.',
+                'mtime' => filemtime($path)
+            ]);
             break;
 
         case 'save_tile_html':
@@ -697,6 +724,53 @@ Respond ONLY with a valid JSON object matching the following structure (no markd
                 'image' => [
                     'name' => $finalName,
                     'url' => './tileimg/' . $finalName
+                ]
+            ]);
+            break;
+
+        case 'upload_asset':
+            $file_param = $_FILES['asset'] ?? ($_FILES['file'] ?? ($_FILES['image'] ?? null));
+            if (!$file_param || $file_param['error'] !== UPLOAD_ERR_OK) {
+                throw new Exception("No asset uploaded or upload error occurred.");
+            }
+
+            $tmpPath = $file_param['tmp_name'];
+            $origName = $file_param['name'];
+
+            $dir = __DIR__ . '/assets';
+            if (!is_dir($dir)) {
+                mkdir($dir, 0755, true);
+            }
+
+            $baseName = pathinfo($origName, PATHINFO_FILENAME);
+            $origExt = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+
+            $cleanBase = preg_replace('/[^a-zA-Z0-9_\-]/', '_', $baseName);
+            $cleanExt = preg_replace('/[^a-zA-Z0-9]/', '', $origExt);
+
+            if (empty($cleanExt)) {
+                throw new Exception("Asset extension is missing or invalid.");
+            }
+
+            $finalName = $cleanBase . '.' . $cleanExt;
+            $counter = 1;
+            while (file_exists($dir . '/' . $finalName)) {
+                $finalName = $cleanBase . '_' . $counter . '.' . $cleanExt;
+                $counter++;
+            }
+
+            $targetPath = $dir . '/' . $finalName;
+            if (!move_uploaded_file($tmpPath, $targetPath)) {
+                throw new Exception("Failed to move uploaded asset file.");
+            }
+
+            echo json_encode([
+                'status' => 'success',
+                'message' => 'Asset uploaded successfully.',
+                'asset' => [
+                    'name' => $finalName,
+                    'size' => filesize($targetPath),
+                    'url' => './assets/' . $finalName
                 ]
             ]);
             break;
