@@ -22,6 +22,20 @@ try {
     $db = get_db_connection();
 
     switch ($action) {
+        case 'get_tiles':
+            $stmt = $db->prepare("SELECT id, name, language, title, html_teaser, summary, tags, type, link, content_file, visible, secret, accent_color, background, sort_order, created_at, updated_at FROM tiles ORDER BY name ASC, language ASC");
+            $stmt->execute();
+            $tiles = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($tiles as &$t) {
+                $raw_tags = trim((string)($t['tags'] ?? ''), '{}');
+                $t['tags'] = array_values(array_filter(array_map('trim', explode(',', $raw_tags))));
+            }
+            echo json_encode([
+                'status' => 'success',
+                'tiles' => $tiles
+            ]);
+            break;
+
         case 'translation_status':
             $tile_name = $_GET['name'] ?? $_POST['name'] ?? null;
             $matrix = get_translation_status($tile_name);
