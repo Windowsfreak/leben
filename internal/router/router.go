@@ -378,6 +378,7 @@ func (r *Router) handleAdminSaveTile(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 	} else {
+		_ = req.ParseMultipartForm(10 << 20)
 		_ = req.ParseForm()
 		id, _ := strconv.Atoi(req.FormValue("id"))
 		tile.ID = id
