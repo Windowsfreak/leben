@@ -1,6 +1,7 @@
 package router
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -119,8 +120,9 @@ func (r *Router) setupRoutes() {
 }
 
 func (r *Router) wrapAuth(handler http.HandlerFunc) httprouter.Handle {
-	return func(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
-		r.auth.Middleware(handler)(w, req)
+	return func(w http.ResponseWriter, req *http.Request, ps httprouter.Params) {
+		ctx := context.WithValue(req.Context(), httprouter.ParamsKey, ps)
+		r.auth.Middleware(handler)(w, req.WithContext(ctx))
 	}
 }
 
@@ -328,16 +330,23 @@ func (r *Router) handleMCPPost(w http.ResponseWriter, req *http.Request, _ httpr
 }
 
 func (r *Router) handleAdminLogin(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
-	_ = req.ParseForm()
-	var body struct {
-		Password string `json:"password"`
-	}
-	_ = json.NewDecoder(req.Body).Decode(&body)
-	if body.Password == "" {
-		body.Password = req.FormValue("password")
+	var password string
+	if strings.Contains(req.Header.Get("Content-Type"), "application/json") {
+		var body struct {
+			Password string `json:"password"`
+		}
+		_ = json.NewDecoder(req.Body).Decode(&body)
+		password = body.Password
+	} else {
+		_ = req.ParseMultipartForm(10 << 20)
+		password = req.FormValue("password")
 	}
 
-	if !r.auth.VerifyPassword(body.Password) {
+	if password == "" {
+		password = req.URL.Query().Get("password")
+	}
+
+	if !r.auth.VerifyPassword(password) {
 		writeError(w, http.StatusUnauthorized, "Invalid admin password.")
 		return
 	}
@@ -477,6 +486,9 @@ func (r *Router) handleAdminCancelTask(w http.ResponseWriter, req *http.Request)
 func (r *Router) handleAdminGetContentFile(w http.ResponseWriter, req *http.Request) {
 	ps := httprouter.ParamsFromContext(req.Context())
 	file := ps.ByName("file")
+	if file == "" {
+		file = filepath.Base(req.URL.Path)
+	}
 	fPath := filepath.Join(r.cfg.Server.WebDir, "content", file)
 
 	info, err := os.Stat(fPath)
@@ -505,6 +517,9 @@ func (r *Router) handleAdminGetContentFile(w http.ResponseWriter, req *http.Requ
 func (r *Router) handleAdminSaveContentFile(w http.ResponseWriter, req *http.Request) {
 	ps := httprouter.ParamsFromContext(req.Context())
 	file := ps.ByName("file")
+	if file == "" {
+		file = filepath.Base(req.URL.Path)
+	}
 
 	var body struct {
 		Content       string `json:"content"`
