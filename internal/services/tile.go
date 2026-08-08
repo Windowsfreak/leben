@@ -28,9 +28,8 @@ func NewTileService(cfg *config.Config, database *db.DB, ollama *OllamaService) 
 	}
 }
 
-func FormatTileDocumentText(name, language string, tags []string, summary string) string {
-	tagsStr := strings.Join(tags, " ")
-	return fmt.Sprintf("%s %s, %s: %s", name, strings.ToUpper(language), tagsStr, summary)
+func FormatTileDocumentText(name, language string, tags string, summary string) string {
+	return fmt.Sprintf("%s %s, %s: %s", name, strings.ToUpper(language), tags, summary)
 }
 
 func (s *TileService) SearchTiles(ctx context.Context, prefLang, queryStr string, refCodes []string, showInvisible bool, offset, limit int) ([]*models.Tile, error) {

@@ -8,7 +8,7 @@ type Tile struct {
 	ID          int       `json:"id"`
 	Name        string    `json:"name"`
 	Language    string    `json:"language"`
-	Tags        []string  `json:"tags"`
+	Tags        string    `json:"tags"`
 	Title       string    `json:"title"`
 	HTMLTeaser  string    `json:"html_teaser"`
 	Summary     string    `json:"summary"`

@@ -15,7 +15,7 @@ Authentication headers accepted on protected requests:
 ## 1. Auth & Status (`/api/admin/login`)
 
 ### `POST /api/admin/login`
-- **Req**: `{"password": "<password>"}` or form data `password=<password>`
+- **Req**: JSON `{"password": "<password>"}`
 - **Res**: `{"status": "success", "message": "Login successful.", "token": "<admin_token>"}`
 
 ---
@@ -28,7 +28,7 @@ Authentication headers accepted on protected requests:
 - Returns full list of all tiles in database including secret and invisible tiles.
 
 ### `POST /api/admin/tiles` or `PUT /api/admin/tiles`
-- **Req**: JSON object or form data:
+- **Req**: JSON object (`Content-Type: application/json`):
   - `id` (int, optional for update)
   - `name` (str, required)
   - `language` ("de"|"en")
@@ -36,7 +36,7 @@ Authentication headers accepted on protected requests:
   - `summary` (str)
   - `html_teaser` (str)
   - `content_file` (str)
-  - `tags` (array of strings or comma-separated string)
+  - `tags` (comma-delimited string, e.g. `"leben, design, zukunft"`)
   - `type` ("doc"|"link")
   - `link` (str)
   - `secret` (str)
@@ -59,7 +59,7 @@ Authentication headers accepted on protected requests:
 - **Res**: `{"status": "success", "message": "Tile cloned successfully.", "clone_name": string}`
 
 ### `POST /api/admin/tile/:name/translate` (or `/api/admin/tile/:id/translate`)
-- **Req**: Query or form parameter `target_lang` ("de"|"en"|"all", default "all")
+- **Req**: JSON `{"name": string, "target_lang": string}` or query parameter `target_lang` ("de"|"en"|"all", default "all")
 - **Res**: `{"status": "success", "message": "Translation task started for card '...'", "task": {"id": string, "type": string, "status": string, ...}}`
 - Triggers asynchronous translation task in the background.
 
@@ -86,12 +86,12 @@ Authentication headers accepted on protected requests:
 - **Res**: `{"status": "success", "content": string, "mtime": int64}`
 
 ### `POST /api/admin/content/:file`
-- **Req**: JSON `{"content": string, "expected_mtime": int64}` or form parameter `content`
+- **Req**: JSON `{"content": string, "expected_mtime": int64}`
 - **Res**: `{"status": "success", "message": "File saved successfully.", "mtime": int64}`
 
 ### `POST /api/admin/content-suggest-meta`
 - **Req**: JSON `{"name": string, "title": string, "content_file": string, "html_teaser": string}`
-- **Res**: `{"status": "success", "data": {"summary": string, "tags": string[]}}`
+- **Res**: `{"status": "success", "data": {"summary": string, "tags": string}}`
 
 ### `POST /api/admin/content-edit-html`
 - **Req**: JSON `{"prompt": string instruction, "html_teaser": string}`
@@ -102,11 +102,11 @@ Authentication headers accepted on protected requests:
 ## 5. Image & Asset Operations (`/api/admin/images`, `/api/admin/assets`)
 
 ### `GET /api/admin/images`
-- **Res**: `{"status": "success", "files": [{"name": string, "size": int64, "mtime": int64}]}`
+- **Res**: `{"status": "success", "images": [{"name": string, "url": string, "size": int64, "mtime": int64}], "files": [...]}`
 
 ### `POST /api/admin/images/upload`
-- **Req**: `multipart/form-data` with `file`
-- **Res**: `{"status": "success", "message": "File uploaded successfully.", "name": string}`
+- **Req**: `multipart/form-data` with `image` or `file`
+- **Res**: `{"status": "success", "message": "File uploaded successfully.", "name": string, "image": {"name": string, "url": string}}`
 
 ### `POST /api/admin/images/rename`
 - **Req**: JSON `{"old_name": string, "new_name": string}`

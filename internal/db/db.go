@@ -119,31 +119,32 @@ func StringToVector(s string) []float64 {
 	return res
 }
 
-func TagsToPostgres(tags []string) string {
-	cleaned := make([]string, 0, len(tags))
-	for _, t := range tags {
-		t = strings.TrimSpace(t)
-		if t != "" {
-			cleaned = append(cleaned, t)
+func TagsToPostgres(tagsStr string) string {
+	parts := strings.Split(tagsStr, ",")
+	cleaned := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			cleaned = append(cleaned, p)
 		}
 	}
 	return "{" + strings.Join(cleaned, ",") + "}"
 }
 
-func PostgresToTags(s string) []string {
+func PostgresToTags(s string) string {
 	s = strings.Trim(s, "{}")
 	if s == "" {
-		return []string{}
+		return ""
 	}
 	parts := strings.Split(s, ",")
-	res := make([]string, 0, len(parts))
+	cleaned := make([]string, 0, len(parts))
 	for _, p := range parts {
 		p = strings.TrimSpace(p)
 		if p != "" {
-			res = append(res, p)
+			cleaned = append(cleaned, p)
 		}
 	}
-	return res
+	return strings.Join(cleaned, ", ")
 }
 
 func ScanTile(scanner interface{ Scan(dest ...any) error }) (*models.Tile, error) {
@@ -178,7 +179,7 @@ func ScanTile(scanner interface{ Scan(dest ...any) error }) (*models.Tile, error
 	if tagsStr.Valid {
 		tile.Tags = PostgresToTags(tagsStr.String)
 	} else {
-		tile.Tags = []string{}
+		tile.Tags = ""
 	}
 	if vecStr.Valid {
 		tile.Embedding = StringToVector(vecStr.String)

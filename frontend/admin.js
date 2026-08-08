@@ -28,12 +28,12 @@ function getAdminHeaders() {
 
 // Perform login request
 function login(password) {
-    const formData = new FormData();
-    formData.append('password', password);
-    
     fetch('/api/admin/login', {
         method: 'POST',
-        body: formData
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ password })
     })
         .then(res => {
             if (!res.ok) throw new Error("Invalid password");
@@ -102,16 +102,7 @@ function openEditor(tile = null) {
         document.getElementById('editLanguage').value = tile.language;
         document.getElementById('editTitle').value = tile.title;
         
-        // Format tags safely whether tile.tags is an Array or String
-        let tagsClean = '';
-        if (Array.isArray(tile.tags)) {
-            tagsClean = tile.tags.join(', ');
-        } else if (typeof tile.tags === 'string') {
-            tagsClean = tile.tags.replace(/[\{\}]/g, '');
-        } else if (tile.tags) {
-            tagsClean = String(tile.tags);
-        }
-        document.getElementById('editCategoryTags').value = tagsClean;
+        document.getElementById('editCategoryTags').value = tile ? (tile.tags || '') : '';
         
         document.getElementById('editSummary').value = tile.summary || '';
         document.getElementById('editReferenceType').value = tile.type || 'doc';
@@ -505,30 +496,29 @@ function closeSettingsWithConfirm() {
 // Save (Insert / Update) tile details, optionally syncing non-language settings to sibling tiles
 function saveTile(syncSiblings = false) {
     const id = document.getElementById('editId').value;
-    const form = document.getElementById('editorForm');
     
     const htmlContent = (monacoHtmlEditorInstance && monacoLoaded) 
         ? monacoHtmlEditorInstance.getValue() 
         : document.getElementById('editHtmlContent').value;
         
-    const formData = new FormData();
-    if (id) formData.append('id', id);
-    formData.append('name', document.getElementById('editName').value);
-    formData.append('language', document.getElementById('editLanguage').value);
-    formData.append('title', document.getElementById('editTitle').value);
-    formData.append('tags', document.getElementById('editCategoryTags').value);
-    formData.append('summary', document.getElementById('editSummary').value);
-    formData.append('type', document.getElementById('editReferenceType').value);
-    formData.append('link', document.getElementById('editLink').value);
-    formData.append('content_file', document.getElementById('editContentFile').value);
-    formData.append('html_teaser', htmlContent);
-    formData.append('visible', document.getElementById('editVisible').checked ? 'true' : 'false');
-    formData.append('secret', document.getElementById('editSecret').value);
-    formData.append('sort_order', document.getElementById('editSortOrder').value);
-    formData.append('accent_color', document.getElementById('editAccentColor').value);
-    formData.append('background', document.getElementById('editBackground').value);
-    if (syncSiblings) {
-        formData.append('sync_siblings', 'true');
+    const payload = {
+        name: document.getElementById('editName').value,
+        language: document.getElementById('editLanguage').value,
+        title: document.getElementById('editTitle').value,
+        tags: document.getElementById('editCategoryTags').value,
+        summary: document.getElementById('editSummary').value,
+        type: document.getElementById('editReferenceType').value,
+        link: document.getElementById('editLink').value,
+        content_file: document.getElementById('editContentFile').value,
+        html_teaser: htmlContent,
+        visible: document.getElementById('editVisible').checked,
+        secret: document.getElementById('editSecret').value,
+        sort_order: parseInt(document.getElementById('editSortOrder').value, 10) || 100,
+        accent_color: document.getElementById('editAccentColor').value,
+        background: document.getElementById('editBackground').value
+    };
+    if (id) {
+        payload.id = parseInt(id, 10);
     }
     
     // Show spinner in active save button during network request
@@ -543,8 +533,11 @@ function saveTile(syncSiblings = false) {
     
     fetch('/api/admin/tiles', {
         method: 'POST',
-        headers: typeof getAdminHeaders === 'function' ? getAdminHeaders() : {},
-        body: formData
+        headers: {
+            'Content-Type': 'application/json',
+            ...(typeof getAdminHeaders === 'function' ? getAdminHeaders() : {})
+        },
+        body: JSON.stringify(payload)
     })
         .then(res => {
             if (!res.ok) throw new Error("Save error");
@@ -963,14 +956,16 @@ function initAdmin() {
         confirmBtn.disabled = true;
         confirmBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Generiere...';
         
-        const formData = new FormData();
-        formData.append('prompt', promptText);
-        formData.append('html_teaser', currentHtml);
-        
         fetch('/api/admin/content-edit-html', {
             method: 'POST',
-            headers: typeof getAdminHeaders === 'function' ? getAdminHeaders() : {},
-            body: formData
+            headers: {
+                'Content-Type': 'application/json',
+                ...(typeof getAdminHeaders === 'function' ? getAdminHeaders() : {})
+            },
+            body: JSON.stringify({
+                prompt: promptText,
+                html_teaser: currentHtml
+            })
         })
         .then(res => {
             if (!res.ok) throw new Error("Server error running LLM");
@@ -1026,17 +1021,19 @@ function initAdmin() {
         btn.disabled = true;
         btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Analysiere...';
         
-        const formData = new FormData();
-        formData.append('name', name);
-        formData.append('language', document.getElementById('editLanguage').value.trim());
-        formData.append('title', title);
-        formData.append('content_file', contentFile);
-        formData.append('html_teaser', htmlContent);
-        
         fetch('/api/admin/content-suggest-meta', {
             method: 'POST',
-            headers: typeof getAdminHeaders === 'function' ? getAdminHeaders() : {},
-            body: formData
+            headers: {
+                'Content-Type': 'application/json',
+                ...(typeof getAdminHeaders === 'function' ? getAdminHeaders() : {})
+            },
+            body: JSON.stringify({
+                name: name,
+                language: document.getElementById('editLanguage').value.trim(),
+                title: title,
+                content_file: contentFile,
+                html_teaser: htmlContent
+            })
         })
         .then(res => {
             if (!res.ok) throw new Error("Server error suggesting meta");
@@ -1163,14 +1160,16 @@ function triggerAutoTranslate() {
 
             btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> KI Übersetzt...';
 
-            const formData = new FormData();
-            formData.append('name', tileName);
-            formData.append('target_lang', 'all');
-
             return fetch(`/api/admin/tile/${encodeURIComponent(tileName)}/translate`, {
                 method: 'POST',
-                headers: buildApiHeaders(),
-                body: formData
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...buildApiHeaders()
+                },
+                body: JSON.stringify({
+                    name: tileName,
+                    target_lang: 'all'
+                })
             })
                 .then(res => res.json())
                 .then(res => {
@@ -1350,22 +1349,24 @@ function saveLightboxEditor() {
     saveBtn.disabled = true;
     saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Speichere...';
     
-    const formData = new FormData();
     let url = '';
+    let bodyData = null;
     
     if (file) {
         url = `/api/admin/content/${encodeURIComponent(file)}`;
-        formData.append('content', htmlContent);
+        bodyData = JSON.stringify({ content: htmlContent });
     } else {
         url = '/api/admin/tiles';
-        formData.append('id', id);
-        formData.append('html_teaser', htmlContent);
+        bodyData = JSON.stringify({ id: parseInt(id, 10), html_teaser: htmlContent });
     }
     
     fetch(url, {
         method: 'POST',
-        headers: typeof getAdminHeaders === 'function' ? getAdminHeaders() : {},
-        body: formData
+        headers: {
+            'Content-Type': 'application/json',
+            ...(typeof getAdminHeaders === 'function' ? getAdminHeaders() : {})
+        },
+        body: bodyData
     })
     .then(res => {
         if (!res.ok) throw new Error("Save error");
@@ -1469,13 +1470,15 @@ function loadImagePickerFiles() {
             grid.appendChild(uploadCard);
             
             // 2. Render each image item
-            res.images.forEach(img => {
+            const imagesList = res.images || res.files || [];
+            imagesList.forEach(img => {
                 const item = document.createElement('div');
                 item.className = 'image-picker-item';
                 item.setAttribute('data-name', img.name);
+                const imgUrl = img.url || `./img/${img.name}`;
                 
                 item.innerHTML = `
-                    <img src="${img.url}?v=${Date.now()}" alt="${img.name}">
+                    <img src="${imgUrl}?v=${Date.now()}" alt="${img.name}">
                     <div class="image-item-overlay">
                         <button type="button" class="image-action-btn rename-btn" title="Umbenennen"><i class="fa-solid fa-pen"></i></button>
                         <button type="button" class="image-action-btn delete-btn" title="Löschen"><i class="fa-solid fa-trash"></i></button>
@@ -1489,7 +1492,7 @@ function loadImagePickerFiles() {
                         return; // let buttons handle it
                     }
                     // Insert CSS background rule
-                    document.getElementById('editBackground').value = `url(./tileimg/${img.name}) center/cover`;
+                    document.getElementById('editBackground').value = `url(./img/${img.name}) center/cover`;
                     formDirty = true;
                     updateLivePreview();
                     document.getElementById('imagePickerDialog').close();
@@ -1573,14 +1576,16 @@ function renameImage(filename) {
 }
 
 function performRenameImageAction(oldName, newName) {
-    const formData = new FormData();
-    formData.append('old_name', oldName);
-    formData.append('new_name', newName);
-    
     fetch('/api/admin/images/rename', {
         method: 'POST',
-        headers: typeof getAdminHeaders === 'function' ? getAdminHeaders() : {},
-        body: formData
+        headers: {
+            'Content-Type': 'application/json',
+            ...(typeof getAdminHeaders === 'function' ? getAdminHeaders() : {})
+        },
+        body: JSON.stringify({
+            old_name: oldName,
+            new_name: newName
+        })
     })
     .then(res => res.json())
     .then(res => {

@@ -185,7 +185,7 @@ func (r *Router) handleGetTiles(w http.ResponseWriter, req *http.Request, _ http
 
 	var items []toon.Item
 	for idx, t := range tiles {
-		tagsStr := strings.Join(t.Tags, ", ")
+		tagsStr := t.Tags
 		dateStr := t.UpdatedAt.Format("2006-01-02")
 
 		typeStr := t.Type
@@ -330,18 +330,13 @@ func (r *Router) handleMCPPost(w http.ResponseWriter, req *http.Request, _ httpr
 }
 
 func (r *Router) handleAdminLogin(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
-	var password string
-	if strings.Contains(req.Header.Get("Content-Type"), "application/json") {
-		var body struct {
-			Password string `json:"password"`
-		}
-		_ = json.NewDecoder(req.Body).Decode(&body)
-		password = body.Password
-	} else {
-		_ = req.ParseMultipartForm(10 << 20)
-		password = req.FormValue("password")
+	var body struct {
+		Password string `json:"password"`
 	}
-
+	if strings.Contains(req.Header.Get("Content-Type"), "application/json") {
+		_ = json.NewDecoder(req.Body).Decode(&body)
+	}
+	password := body.Password
 	if password == "" {
 		password = req.URL.Query().Get("password")
 	}
@@ -372,36 +367,9 @@ func (r *Router) handleAdminGetAllTiles(w http.ResponseWriter, req *http.Request
 
 func (r *Router) handleAdminSaveTile(w http.ResponseWriter, req *http.Request) {
 	var tile models.Tile
-	if strings.Contains(req.Header.Get("Content-Type"), "application/json") {
-		if err := json.NewDecoder(req.Body).Decode(&tile); err != nil {
-			writeError(w, http.StatusBadRequest, "Invalid JSON body.")
-			return
-		}
-	} else {
-		_ = req.ParseMultipartForm(10 << 20)
-		_ = req.ParseForm()
-		id, _ := strconv.Atoi(req.FormValue("id"))
-		tile.ID = id
-		tile.Name = strings.TrimSpace(req.FormValue("name"))
-		tile.Language = strings.TrimSpace(req.FormValue("language"))
-		tile.Title = strings.TrimSpace(req.FormValue("title"))
-		tile.HTMLTeaser = strings.TrimSpace(req.FormValue("html_teaser"))
-		tile.Summary = strings.TrimSpace(req.FormValue("summary"))
-		tile.Link = strings.TrimSpace(req.FormValue("link"))
-		tile.Type = strings.TrimSpace(req.FormValue("type"))
-		tile.ContentFile = strings.TrimSpace(req.FormValue("content_file"))
-		tile.Secret = strings.TrimSpace(req.FormValue("secret"))
-		tile.AccentColor = strings.TrimSpace(req.FormValue("accent_color"))
-		tile.Background = strings.TrimSpace(req.FormValue("background"))
-		tile.Visible = req.FormValue("visible") == "true" || req.FormValue("visible") == "1"
-		sortOrder, _ := strconv.Atoi(req.FormValue("sort_order"))
-		tile.SortOrder = sortOrder
-
-		tagsRaw := req.FormValue("tags")
-		if tagsRaw != "" {
-			parts := strings.Split(tagsRaw, ",")
-			tile.Tags = parts
-		}
+	if err := json.NewDecoder(req.Body).Decode(&tile); err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid JSON body.")
+		return
 	}
 
 	if tile.Name == "" || tile.Title == "" {
@@ -441,9 +409,19 @@ func (r *Router) handleAdminTranslateTile(w http.ResponseWriter, req *http.Reque
 	if name == "" {
 		name = ps.ByName("name")
 	}
-	targetLang := req.URL.Query().Get("target_lang")
+
+	var body struct {
+		Name       string `json:"name"`
+		TargetLang string `json:"target_lang"`
+	}
+	_ = json.NewDecoder(req.Body).Decode(&body)
+
+	if name == "" {
+		name = body.Name
+	}
+	targetLang := body.TargetLang
 	if targetLang == "" {
-		targetLang = req.FormValue("target_lang")
+		targetLang = req.URL.Query().Get("target_lang")
 	}
 	if targetLang == "" {
 		targetLang = "all"
@@ -526,13 +504,7 @@ func (r *Router) handleAdminSaveContentFile(w http.ResponseWriter, req *http.Req
 		Content       string `json:"content"`
 		ExpectedMTime int64  `json:"expected_mtime"`
 	}
-	if strings.Contains(req.Header.Get("Content-Type"), "application/json") {
-		_ = json.NewDecoder(req.Body).Decode(&body)
-	} else {
-		body.Content = req.FormValue("content")
-		exp, _ := strconv.ParseInt(req.FormValue("expected_mtime"), 10, 64)
-		body.ExpectedMTime = exp
-	}
+	_ = json.NewDecoder(req.Body).Decode(&body)
 
 	fPath := filepath.Join(r.cfg.Server.WebDir, "content", file)
 
@@ -696,20 +668,31 @@ func (r *Router) listDirFiles(w http.ResponseWriter, dirName string) {
 			info, _ := e.Info()
 			files = append(files, map[string]any{
 				"name":  e.Name(),
+				"url":   fmt.Sprintf("./%s/%s", dirName, e.Name()),
 				"size":  info.Size(),
 				"mtime": info.ModTime().Unix(),
 			})
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
+	res := map[string]any{
 		"status": "success",
 		"files":  files,
-	})
+	}
+	if dirName == "img" {
+		res["images"] = files
+	} else if dirName == "assets" {
+		res["assets"] = files
+	}
+
+	writeJSON(w, http.StatusOK, res)
 }
 
 func (r *Router) uploadFile(w http.ResponseWriter, req *http.Request, dirName string) {
 	file, header, err := req.FormFile("file")
+	if err != nil {
+		file, header, err = req.FormFile("image")
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "No file uploaded.")
 		return
@@ -729,10 +712,17 @@ func (r *Router) uploadFile(w http.ResponseWriter, req *http.Request, dirName st
 		return
 	}
 
+	fileInfo := map[string]any{
+		"name": header.Filename,
+		"url":  fmt.Sprintf("./%s/%s", dirName, header.Filename),
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":  "success",
 		"message": "File uploaded successfully.",
 		"name":    header.Filename,
+		"image":   fileInfo,
+		"file":    fileInfo,
 	})
 }
 
@@ -802,11 +792,7 @@ func (r *Router) handleAdminSaveConfig(w http.ResponseWriter, req *http.Request)
 	var body struct {
 		ConfigJSON string `json:"config_json"`
 	}
-	if strings.Contains(req.Header.Get("Content-Type"), "application/json") {
-		_ = json.NewDecoder(req.Body).Decode(&body)
-	} else {
-		body.ConfigJSON = req.FormValue("config_json")
-	}
+	_ = json.NewDecoder(req.Body).Decode(&body)
 
 	if body.ConfigJSON == "" {
 		writeError(w, http.StatusBadRequest, "No config_json provided.")

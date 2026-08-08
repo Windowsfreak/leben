@@ -43,9 +43,9 @@ func NewTranslationService(
 }
 
 type translatedMetadata struct {
-	Title   string   `json:"title"`
-	Summary string   `json:"summary"`
-	Tags    []string `json:"tags"`
+	Title   string `json:"title"`
+	Summary string `json:"summary"`
+	Tags    any    `json:"tags"`
 }
 
 func (s *TranslationService) StartAutoTranslateTask(parentCtx context.Context, name, targetLang string) (*models.TranslationTask, error) {
@@ -128,11 +128,11 @@ Respond ONLY with a valid JSON object (no markdown, no backticks):
 {
   "title": "Translated Title",
   "summary": "Translated summary...",
-  "tags": ["tag1", "tag2"]
+  "tags": "tag1, tag2"
 }`, strings.ToUpper(sourceTile.Language), langFullName)
 
 		metaUser := fmt.Sprintf("Source Title: %s\nSource Tags: %s\nSource Summary: %s",
-			sourceTile.Title, strings.Join(sourceTile.Tags, ", "), sourceTile.Summary)
+			sourceTile.Title, sourceTile.Tags, sourceTile.Summary)
 
 		metaRes, err := s.llmSvc.CallLLM(ctx, metaPrompt, metaUser)
 		if err != nil {
@@ -183,9 +183,21 @@ Respond ONLY with a valid JSON object (no markdown, no backticks):
 			}
 		}
 
-		tags := transMeta.Tags
-		if len(tags) == 0 {
-			tags = sourceTile.Tags
+		tagsStr := ""
+		switch t := transMeta.Tags.(type) {
+		case string:
+			tagsStr = t
+		case []any:
+			var parts []string
+			for _, item := range t {
+				if str, ok := item.(string); ok {
+					parts = append(parts, str)
+				}
+			}
+			tagsStr = strings.Join(parts, ", ")
+		}
+		if strings.TrimSpace(tagsStr) == "" {
+			tagsStr = sourceTile.Tags
 		}
 		summary := transMeta.Summary
 		if summary == "" {
@@ -198,7 +210,7 @@ Respond ONLY with a valid JSON object (no markdown, no backticks):
 			Title:       transMeta.Title,
 			HTMLTeaser:  translatedTeaser,
 			Summary:     summary,
-			Tags:        tags,
+			Tags:        tagsStr,
 			Type:        sourceTile.Type,
 			Link:        sourceTile.Link,
 			ContentFile: targetContentFile,
