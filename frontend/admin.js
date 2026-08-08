@@ -102,9 +102,15 @@ function openEditor(tile = null) {
         document.getElementById('editLanguage').value = tile.language;
         document.getElementById('editTitle').value = tile.title;
         
-        // Clean Postgres array tag format '{tag1,tag2}' to 'tag1, tag2'
-        const rawTags = tile.tags || '';
-        const tagsClean = rawTags.replace(/[\{\}]/g, '');
+        // Format tags safely whether tile.tags is an Array or String
+        let tagsClean = '';
+        if (Array.isArray(tile.tags)) {
+            tagsClean = tile.tags.join(', ');
+        } else if (typeof tile.tags === 'string') {
+            tagsClean = tile.tags.replace(/[\{\}]/g, '');
+        } else if (tile.tags) {
+            tagsClean = String(tile.tags);
+        }
         document.getElementById('editCategoryTags').value = tagsClean;
         
         document.getElementById('editSummary').value = tile.summary || '';
