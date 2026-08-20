@@ -64,7 +64,13 @@ func (m *Manager) CreateTask(parentCtx context.Context, tileName, targetLang str
 	}
 
 	taskID := uuid.New().String()
-	ctx, cancel := context.WithCancel(parentCtx)
+	bgCtx := parentCtx
+	if bgCtx == nil {
+		bgCtx = context.Background()
+	} else {
+		bgCtx = context.WithoutCancel(bgCtx)
+	}
+	ctx, cancel := context.WithCancel(bgCtx)
 
 	task := &models.TranslationTask{
 		ID:         taskID,
