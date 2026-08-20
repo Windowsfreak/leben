@@ -644,7 +644,14 @@ func (r *Router) handleAdminUploadImage(w http.ResponseWriter, req *http.Request
 		return
 	}
 
-	tmpFile, err := os.CreateTemp("", "leben-upload-*")
+	origName := filepath.Base(header.Filename)
+	ext := filepath.Ext(origName)
+	tmpPattern := "leben-upload-*"
+	if ext != "" {
+		tmpPattern = "leben-upload-*" + ext
+	}
+
+	tmpFile, err := os.CreateTemp("", tmpPattern)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -660,9 +667,8 @@ func (r *Router) handleAdminUploadImage(w http.ResponseWriter, req *http.Request
 	}
 
 	fileSize := written
-	origName := filepath.Base(header.Filename)
-	origExt := strings.ToLower(strings.TrimPrefix(filepath.Ext(origName), "."))
-	baseName := strings.TrimSuffix(origName, filepath.Ext(origName))
+	origExt := strings.ToLower(strings.TrimPrefix(ext, "."))
+	baseName := strings.TrimSuffix(origName, ext)
 	cleanName := cleanFilenameRegex.ReplaceAllString(baseName, "_")
 	if cleanName == "" {
 		cleanName = "image"
@@ -671,8 +677,8 @@ func (r *Router) handleAdminUploadImage(w http.ResponseWriter, req *http.Request
 	var finalName string
 	var targetPath string
 
-	// 1. If file is <= 50kb (51200 bytes), do not edit or convert it at all
-	if fileSize <= 51200 {
+	// 1. If file is <= 50kb (51200 bytes) OR (already WebP and <= 100kb), leave original file unchanged
+	if fileSize <= 51200 || (origExt == "webp" && fileSize <= 102400) {
 		targetExt := origExt
 		if targetExt == "" {
 			targetExt = "webp"
@@ -687,40 +693,29 @@ func (r *Router) handleAdminUploadImage(w http.ResponseWriter, req *http.Request
 			finalName = fmt.Sprintf("%s_%d.%s", cleanName, counter, targetExt)
 			counter++
 		}
+		targetPath = filepath.Join(dir, finalName)
 
 		if err := copyFileContents(tmpPath, targetPath); err != nil {
 			writeError(w, http.StatusInternalServerError, "Failed to save uploaded image: "+err.Error())
 			return
 		}
 	} else {
-		// Otherwise, convert to WebP
-		targetExt := "webp"
-		finalName = cleanName + "." + targetExt
+		// 2. Otherwise, convert to WebP using ImageMagick / cwebp
+		finalName = cleanName + ".webp"
 		counter := 1
 		for {
 			targetPath = filepath.Join(dir, finalName)
 			if _, err := os.Stat(targetPath); os.IsNotExist(err) {
 				break
 			}
-			finalName = fmt.Sprintf("%s_%d.%s", cleanName, counter, targetExt)
+			finalName = fmt.Sprintf("%s_%d.webp", cleanName, counter)
 			counter++
 		}
+		targetPath = filepath.Join(dir, finalName)
 
-		// If already WebP and <= 100kb (102400 bytes), move unmodified
-		if origExt == "webp" && fileSize <= 102400 {
-			if err := copyFileContents(tmpPath, targetPath); err != nil {
-				writeError(w, http.StatusInternalServerError, "Failed to save WebP image: "+err.Error())
-				return
-			}
-		} else {
-			// Convert to WebP using ImageMagick / cwebp
-			if err := convertImageToWebP(req.Context(), tmpPath, targetPath, fileSize); err != nil {
-				log.Printf("WebP conversion warning (%v), falling back to raw save", err)
-				if copyErr := copyFileContents(tmpPath, targetPath); copyErr != nil {
-					writeError(w, http.StatusInternalServerError, "Failed to process and save image: "+err.Error())
-					return
-				}
-			}
+		if err := convertImageToWebP(req.Context(), tmpPath, targetPath, fileSize); err != nil {
+			writeError(w, http.StatusInternalServerError, "Image conversion to WebP failed: "+err.Error())
+			return
 		}
 	}
 
@@ -750,12 +745,12 @@ func convertImageToWebP(ctx context.Context, srcPath, dstPath string, fileSize i
 	imCandidates := []string{
 		"magick",
 		"convert",
-		"/opt/homebrew/bin/magick",
-		"/opt/homebrew/bin/convert",
-		"/usr/local/bin/magick",
-		"/usr/local/bin/convert",
 		"/usr/bin/magick",
 		"/usr/bin/convert",
+		"/usr/local/bin/magick",
+		"/usr/local/bin/convert",
+		"/opt/homebrew/bin/magick",
+		"/opt/homebrew/bin/convert",
 	}
 
 	for _, cand := range imCandidates {
@@ -774,19 +769,21 @@ func convertImageToWebP(ctx context.Context, srcPath, dstPath string, fileSize i
 		args = append(args, "-quality", strconv.Itoa(quality), dstPath)
 
 		cmd := exec.CommandContext(ctx, binPath, args...)
-		if output, err := cmd.CombinedOutput(); err == nil {
-			return nil
-		} else {
-			log.Printf("Image converter (%s) error: %v, output: %s", binPath, err, string(output))
+		output, err := cmd.CombinedOutput()
+		if err == nil {
+			if stat, statErr := os.Stat(dstPath); statErr == nil && stat.Size() > 0 {
+				return nil
+			}
 		}
+		log.Printf("Image converter (%s) error: %v, output: %s", binPath, err, string(output))
 	}
 
 	// Fallback to cwebp
 	cwebpCandidates := []string{
 		"cwebp",
-		"/opt/homebrew/bin/cwebp",
-		"/usr/local/bin/cwebp",
 		"/usr/bin/cwebp",
+		"/usr/local/bin/cwebp",
+		"/opt/homebrew/bin/cwebp",
 	}
 	for _, cand := range cwebpCandidates {
 		binPath := cand
@@ -804,11 +801,13 @@ func convertImageToWebP(ctx context.Context, srcPath, dstPath string, fileSize i
 		args = append(args, srcPath, "-o", dstPath)
 
 		cmd := exec.CommandContext(ctx, binPath, args...)
-		if output, err := cmd.CombinedOutput(); err == nil {
-			return nil
-		} else {
-			log.Printf("cwebp converter (%s) error: %v, output: %s", binPath, err, string(output))
+		output, err := cmd.CombinedOutput()
+		if err == nil {
+			if stat, statErr := os.Stat(dstPath); statErr == nil && stat.Size() > 0 {
+				return nil
+			}
 		}
+		log.Printf("cwebp converter (%s) error: %v, output: %s", binPath, err, string(output))
 	}
 
 	return fmt.Errorf("no working image conversion utility found")

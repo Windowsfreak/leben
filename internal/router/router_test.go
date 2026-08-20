@@ -42,7 +42,7 @@ func TestAdminTileImageEndpoints(t *testing.T) {
 
 	// Create a dummy image in tileimg
 	dummyFile := filepath.Join(tileimgDir, "test_tile_bg.webp")
-	if err := os.WriteFile(dummyFile, []byte("test image content"), 0644); err != nil {
+	if err := os.WriteFile(dummyFile, []byte("RIFF____WEBPtest image content"), 0644); err != nil {
 		t.Fatalf("failed to write dummy file: %v", err)
 	}
 
@@ -84,14 +84,14 @@ func TestAdminTileImageEndpoints(t *testing.T) {
 		t.Fatalf("expected URL './tileimg/test_tile_bg.webp', got '%s'", listRes.Images[0].URL)
 	}
 
-	// 2. Test POST /api/admin/images/upload (small file <= 50KB with special characters)
+	// 2. Test POST /api/admin/images/upload (small WebP file <= 100KB: kept unmodified)
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 	part, err := writer.CreateFormFile("image", "my custom photo! 2026.webp")
 	if err != nil {
 		t.Fatalf("failed to create form file: %v", err)
 	}
-	_, _ = io.WriteString(part, "small webp content")
+	_, _ = io.WriteString(part, "RIFF____WEBPsmall webp content")
 	writer.Close()
 
 	uploadReq := httptest.NewRequest(http.MethodPost, "/api/admin/images/upload", body)
@@ -125,53 +125,101 @@ func TestAdminTileImageEndpoints(t *testing.T) {
 		t.Fatalf("uploaded file not found in tileimg directory: %s", uploadedFilePath)
 	}
 
-	// 3. Test POST /api/admin/images/upload with large PNG (> 50KB) converted to WebP
-	img := image.NewRGBA(image.Rect(0, 0, 800, 800))
+	// 3. Test POST /api/admin/images/upload with a small PNG (<= 50KB): kept as PNG unmodified
+	smallImg := image.NewRGBA(image.Rect(0, 0, 50, 50))
+	for y := 0; y < 50; y++ {
+		for x := 0; x < 50; x++ {
+			smallImg.Set(x, y, color.RGBA{R: 200, G: 100, B: 50, A: 255})
+		}
+	}
+	var smallPngBuf bytes.Buffer
+	if err := png.Encode(&smallPngBuf, smallImg); err != nil {
+		t.Fatalf("failed to encode png: %v", err)
+	}
+
+	smallPngBody := &bytes.Buffer{}
+	smallPngWriter := multipart.NewWriter(smallPngBody)
+	smallPngPart, err := smallPngWriter.CreateFormFile("image", "small_card.png")
+	if err != nil {
+		t.Fatalf("failed to create png form file: %v", err)
+	}
+	_, _ = io.Copy(smallPngPart, &smallPngBuf)
+	smallPngWriter.Close()
+
+	smallPngReq := httptest.NewRequest(http.MethodPost, "/api/admin/images/upload", smallPngBody)
+	smallPngReq.Header.Set("Authorization", "Bearer "+secretToken)
+	smallPngReq.Header.Set("Content-Type", smallPngWriter.FormDataContentType())
+	smallPngW := httptest.NewRecorder()
+	r.ServeHTTP(smallPngW, smallPngReq)
+
+	if smallPngW.Code != http.StatusOK {
+		t.Fatalf("small png upload expected 200 OK, got %d: %s", smallPngW.Code, smallPngW.Body.String())
+	}
+
+	var smallPngRes struct {
+		Status string `json:"status"`
+		Name   string `json:"name"`
+	}
+	_ = json.Unmarshal(smallPngW.Body.Bytes(), &smallPngRes)
+	if smallPngRes.Name != "small_card.png" {
+		t.Fatalf("expected output name 'small_card.png' (<=50KB unmodified), got '%s'", smallPngRes.Name)
+	}
+
+	// 4. Test POST /api/admin/images/upload with large PNG (> 50KB): converted to WebP format
+	largeImg := image.NewRGBA(image.Rect(0, 0, 800, 800))
 	var seed uint32 = 12345
 	for y := 0; y < 800; y++ {
 		for x := 0; x < 800; x++ {
 			seed = seed*1664525 + 1013904223
-			img.Set(x, y, color.RGBA{R: uint8(seed), G: uint8(seed >> 8), B: uint8(seed >> 16), A: 255})
+			largeImg.Set(x, y, color.RGBA{R: uint8(seed), G: uint8(seed >> 8), B: uint8(seed >> 16), A: 255})
 		}
 	}
-	var pngBuf bytes.Buffer
-	if err := png.Encode(&pngBuf, img); err != nil {
+	var largePngBuf bytes.Buffer
+	if err := png.Encode(&largePngBuf, largeImg); err != nil {
 		t.Fatalf("failed to encode png: %v", err)
 	}
-	if pngBuf.Len() <= 51200 {
-		t.Fatalf("test png size is %d, expected > 51200", pngBuf.Len())
+	if largePngBuf.Len() <= 51200 {
+		t.Fatalf("expected large png size > 51200, got %d", largePngBuf.Len())
 	}
 
-	largeBody := &bytes.Buffer{}
-	largeWriter := multipart.NewWriter(largeBody)
-	largePart, err := largeWriter.CreateFormFile("image", "large_sample.png")
+	largePngBody := &bytes.Buffer{}
+	largePngWriter := multipart.NewWriter(largePngBody)
+	largePngPart, err := largePngWriter.CreateFormFile("image", "large_card.png")
 	if err != nil {
-		t.Fatalf("failed to create large form file: %v", err)
+		t.Fatalf("failed to create large png form file: %v", err)
 	}
-	_, _ = io.Copy(largePart, &pngBuf)
-	largeWriter.Close()
+	_, _ = io.Copy(largePngPart, &largePngBuf)
+	largePngWriter.Close()
 
-	largeReq := httptest.NewRequest(http.MethodPost, "/api/admin/images/upload", largeBody)
-	largeReq.Header.Set("Authorization", "Bearer "+secretToken)
-	largeReq.Header.Set("Content-Type", largeWriter.FormDataContentType())
-	largeW := httptest.NewRecorder()
-	r.ServeHTTP(largeW, largeReq)
+	largePngReq := httptest.NewRequest(http.MethodPost, "/api/admin/images/upload", largePngBody)
+	largePngReq.Header.Set("Authorization", "Bearer "+secretToken)
+	largePngReq.Header.Set("Content-Type", largePngWriter.FormDataContentType())
+	largePngW := httptest.NewRecorder()
+	r.ServeHTTP(largePngW, largePngReq)
 
-	if largeW.Code != http.StatusOK {
-		t.Fatalf("large upload expected 200 OK, got %d: %s", largeW.Code, largeW.Body.String())
+	if largePngW.Code != http.StatusOK {
+		t.Fatalf("large png upload expected 200 OK, got %d: %s", largePngW.Code, largePngW.Body.String())
 	}
 
-	var largeRes struct {
+	var largePngRes struct {
 		Status string `json:"status"`
 		Name   string `json:"name"`
 	}
-	_ = json.Unmarshal(largeW.Body.Bytes(), &largeRes)
-	if filepath.Ext(largeRes.Name) != ".webp" {
-		t.Fatalf("expected converted .webp extension for large image, got '%s'", largeRes.Name)
+	_ = json.Unmarshal(largePngW.Body.Bytes(), &largePngRes)
+	if largePngRes.Name != "large_card.webp" {
+		t.Fatalf("expected converted output name 'large_card.webp', got '%s'", largePngRes.Name)
 	}
 
-	// 4. Test POST /api/admin/images/rename
-	renameBody := `{"old_name": "my_custom_photo__2026.webp", "new_name": "renamed_tile.webp"}`
+	convertedData, err := os.ReadFile(filepath.Join(tileimgDir, "large_card.webp"))
+	if err != nil {
+		t.Fatalf("failed to read converted file: %v", err)
+	}
+	if len(convertedData) < 12 || string(convertedData[:4]) != "RIFF" || string(convertedData[8:12]) != "WEBP" {
+		t.Fatalf("converted file is not a valid WebP! Header: %q", convertedData[:min(len(convertedData), 16)])
+	}
+
+	// 5. Test POST /api/admin/images/rename
+	renameBody := `{"old_name": "large_card.webp", "new_name": "renamed_tile.webp"}`
 	renameReq := httptest.NewRequest(http.MethodPost, "/api/admin/images/rename", bytes.NewBufferString(renameBody))
 	renameReq.Header.Set("Authorization", "Bearer "+secretToken)
 	renameReq.Header.Set("Content-Type", "application/json")
@@ -187,7 +235,7 @@ func TestAdminTileImageEndpoints(t *testing.T) {
 		t.Fatalf("renamed file not found in tileimg directory: %s", renamedFilePath)
 	}
 
-	// 5. Test DELETE /api/admin/images/:name
+	// 6. Test DELETE /api/admin/images/:name
 	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/admin/images/renamed_tile.webp", nil)
 	deleteReq.Header.Set("Authorization", "Bearer "+secretToken)
 	deleteW := httptest.NewRecorder()
@@ -200,4 +248,11 @@ func TestAdminTileImageEndpoints(t *testing.T) {
 	if _, err := os.Stat(renamedFilePath); !os.IsNotExist(err) {
 		t.Fatalf("expected deleted file to not exist in tileimg: %s", renamedFilePath)
 	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
