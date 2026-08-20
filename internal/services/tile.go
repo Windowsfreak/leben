@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -408,6 +409,29 @@ func (s *TileService) DeleteTile(ctx context.Context, id int) error {
 	return err
 }
 
+type FrontendConfig struct {
+	SupportedLanguages map[string]string `json:"supported_languages"`
+}
+
+func LoadSupportedLanguages(webDir string) map[string]string {
+	defaultMap := map[string]string{
+		"de": "Deutsch",
+		"en": "English",
+	}
+	configPath := filepath.Join(webDir, "config.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return defaultMap
+	}
+
+	var fc FrontendConfig
+	if err := json.Unmarshal(data, &fc); err != nil || len(fc.SupportedLanguages) == 0 {
+		return defaultMap
+	}
+
+	return fc.SupportedLanguages
+}
+
 func (s *TileService) GetTranslationStatus(ctx context.Context, tileName string) (map[string]*models.TileTranslationMatrix, error) {
 	allTiles, err := s.GetAllTiles(ctx)
 	if err != nil {
@@ -421,7 +445,11 @@ func (s *TileService) GetTranslationStatus(ctx context.Context, tileName string)
 		}
 	}
 
-	supportedLangs := []string{"de", "en"} // Supported language list
+	supportedMap := LoadSupportedLanguages(s.cfg.Server.WebDir)
+	var supportedLangs []string
+	for code := range supportedMap {
+		supportedLangs = append(supportedLangs, code)
+	}
 	contentsDir := filepath.Join(s.cfg.Server.WebDir, "content")
 
 	matrix := make(map[string]*models.TileTranslationMatrix)

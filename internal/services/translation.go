@@ -73,10 +73,7 @@ func (s *TranslationService) runTranslateTask(ctx context.Context, taskID, name,
 		return
 	}
 
-	supportedMap := map[string]string{
-		"de": "Deutsch",
-		"en": "English",
-	}
+	supportedMap := LoadSupportedLanguages(s.cfg.Server.WebDir)
 
 	var targets []string
 	if targetLang == "all" || targetLang == "missing" {
