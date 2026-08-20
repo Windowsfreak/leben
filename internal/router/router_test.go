@@ -3,6 +3,9 @@ package router
 import (
 	"bytes"
 	"encoding/json"
+	"image"
+	"image/color"
+	"image/png"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -81,14 +84,14 @@ func TestAdminTileImageEndpoints(t *testing.T) {
 		t.Fatalf("expected URL './tileimg/test_tile_bg.webp', got '%s'", listRes.Images[0].URL)
 	}
 
-	// 2. Test POST /api/admin/images/upload
+	// 2. Test POST /api/admin/images/upload (small file <= 50KB with special characters)
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
-	part, err := writer.CreateFormFile("image", "uploaded_tile.webp")
+	part, err := writer.CreateFormFile("image", "my custom photo! 2026.webp")
 	if err != nil {
 		t.Fatalf("failed to create form file: %v", err)
 	}
-	_, _ = io.WriteString(part, "uploaded content")
+	_, _ = io.WriteString(part, "small webp content")
 	writer.Close()
 
 	uploadReq := httptest.NewRequest(http.MethodPost, "/api/admin/images/upload", body)
@@ -101,13 +104,74 @@ func TestAdminTileImageEndpoints(t *testing.T) {
 		t.Fatalf("upload expected 200 OK, got %d: %s", uploadW.Code, uploadW.Body.String())
 	}
 
-	uploadedFilePath := filepath.Join(tileimgDir, "uploaded_tile.webp")
+	var uploadRes struct {
+		Status string `json:"status"`
+		Name   string `json:"name"`
+		Image  struct {
+			Name string `json:"name"`
+			URL  string `json:"url"`
+		} `json:"image"`
+	}
+	if err := json.Unmarshal(uploadW.Body.Bytes(), &uploadRes); err != nil {
+		t.Fatalf("failed to parse upload json: %v", err)
+	}
+	expectedName := "my_custom_photo__2026.webp"
+	if uploadRes.Name != expectedName {
+		t.Fatalf("expected sanitized name '%s', got '%s'", expectedName, uploadRes.Name)
+	}
+
+	uploadedFilePath := filepath.Join(tileimgDir, expectedName)
 	if _, err := os.Stat(uploadedFilePath); os.IsNotExist(err) {
 		t.Fatalf("uploaded file not found in tileimg directory: %s", uploadedFilePath)
 	}
 
-	// 3. Test POST /api/admin/images/rename
-	renameBody := `{"old_name": "uploaded_tile.webp", "new_name": "renamed_tile.webp"}`
+	// 3. Test POST /api/admin/images/upload with large PNG (> 50KB) converted to WebP
+	img := image.NewRGBA(image.Rect(0, 0, 800, 800))
+	var seed uint32 = 12345
+	for y := 0; y < 800; y++ {
+		for x := 0; x < 800; x++ {
+			seed = seed*1664525 + 1013904223
+			img.Set(x, y, color.RGBA{R: uint8(seed), G: uint8(seed >> 8), B: uint8(seed >> 16), A: 255})
+		}
+	}
+	var pngBuf bytes.Buffer
+	if err := png.Encode(&pngBuf, img); err != nil {
+		t.Fatalf("failed to encode png: %v", err)
+	}
+	if pngBuf.Len() <= 51200 {
+		t.Fatalf("test png size is %d, expected > 51200", pngBuf.Len())
+	}
+
+	largeBody := &bytes.Buffer{}
+	largeWriter := multipart.NewWriter(largeBody)
+	largePart, err := largeWriter.CreateFormFile("image", "large_sample.png")
+	if err != nil {
+		t.Fatalf("failed to create large form file: %v", err)
+	}
+	_, _ = io.Copy(largePart, &pngBuf)
+	largeWriter.Close()
+
+	largeReq := httptest.NewRequest(http.MethodPost, "/api/admin/images/upload", largeBody)
+	largeReq.Header.Set("Authorization", "Bearer "+secretToken)
+	largeReq.Header.Set("Content-Type", largeWriter.FormDataContentType())
+	largeW := httptest.NewRecorder()
+	r.ServeHTTP(largeW, largeReq)
+
+	if largeW.Code != http.StatusOK {
+		t.Fatalf("large upload expected 200 OK, got %d: %s", largeW.Code, largeW.Body.String())
+	}
+
+	var largeRes struct {
+		Status string `json:"status"`
+		Name   string `json:"name"`
+	}
+	_ = json.Unmarshal(largeW.Body.Bytes(), &largeRes)
+	if filepath.Ext(largeRes.Name) != ".webp" {
+		t.Fatalf("expected converted .webp extension for large image, got '%s'", largeRes.Name)
+	}
+
+	// 4. Test POST /api/admin/images/rename
+	renameBody := `{"old_name": "my_custom_photo__2026.webp", "new_name": "renamed_tile.webp"}`
 	renameReq := httptest.NewRequest(http.MethodPost, "/api/admin/images/rename", bytes.NewBufferString(renameBody))
 	renameReq.Header.Set("Authorization", "Bearer "+secretToken)
 	renameReq.Header.Set("Content-Type", "application/json")
@@ -123,7 +187,7 @@ func TestAdminTileImageEndpoints(t *testing.T) {
 		t.Fatalf("renamed file not found in tileimg directory: %s", renamedFilePath)
 	}
 
-	// 4. Test DELETE /api/admin/images/:name
+	// 5. Test DELETE /api/admin/images/:name
 	deleteReq := httptest.NewRequest(http.MethodDelete, "/api/admin/images/renamed_tile.webp", nil)
 	deleteReq.Header.Set("Authorization", "Bearer "+secretToken)
 	deleteW := httptest.NewRecorder()

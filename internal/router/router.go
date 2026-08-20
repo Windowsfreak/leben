@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -622,8 +625,210 @@ func (r *Router) handleAdminListImages(w http.ResponseWriter, req *http.Request)
 	r.listDirFiles(w, "tileimg")
 }
 
+var cleanFilenameRegex = regexp.MustCompile(`[^a-zA-Z0-9_\-]`)
+
 func (r *Router) handleAdminUploadImage(w http.ResponseWriter, req *http.Request) {
-	r.uploadFile(w, req, "tileimg")
+	file, header, err := req.FormFile("image")
+	if err != nil {
+		file, header, err = req.FormFile("file")
+	}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "No image uploaded.")
+		return
+	}
+	defer file.Close()
+
+	dir := filepath.Join(r.cfg.Server.WebDir, "tileimg")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	tmpFile, err := os.CreateTemp("", "leben-upload-*")
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	written, err := io.Copy(tmpFile, file)
+	_ = tmpFile.Close()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	fileSize := written
+	origName := filepath.Base(header.Filename)
+	origExt := strings.ToLower(strings.TrimPrefix(filepath.Ext(origName), "."))
+	baseName := strings.TrimSuffix(origName, filepath.Ext(origName))
+	cleanName := cleanFilenameRegex.ReplaceAllString(baseName, "_")
+	if cleanName == "" {
+		cleanName = "image"
+	}
+
+	var finalName string
+	var targetPath string
+
+	// 1. If file is <= 50kb (51200 bytes), do not edit or convert it at all
+	if fileSize <= 51200 {
+		targetExt := origExt
+		if targetExt == "" {
+			targetExt = "webp"
+		}
+		finalName = cleanName + "." + targetExt
+		counter := 1
+		for {
+			targetPath = filepath.Join(dir, finalName)
+			if _, err := os.Stat(targetPath); os.IsNotExist(err) {
+				break
+			}
+			finalName = fmt.Sprintf("%s_%d.%s", cleanName, counter, targetExt)
+			counter++
+		}
+
+		if err := copyFileContents(tmpPath, targetPath); err != nil {
+			writeError(w, http.StatusInternalServerError, "Failed to save uploaded image: "+err.Error())
+			return
+		}
+	} else {
+		// Otherwise, convert to WebP
+		targetExt := "webp"
+		finalName = cleanName + "." + targetExt
+		counter := 1
+		for {
+			targetPath = filepath.Join(dir, finalName)
+			if _, err := os.Stat(targetPath); os.IsNotExist(err) {
+				break
+			}
+			finalName = fmt.Sprintf("%s_%d.%s", cleanName, counter, targetExt)
+			counter++
+		}
+
+		// If already WebP and <= 100kb (102400 bytes), move unmodified
+		if origExt == "webp" && fileSize <= 102400 {
+			if err := copyFileContents(tmpPath, targetPath); err != nil {
+				writeError(w, http.StatusInternalServerError, "Failed to save WebP image: "+err.Error())
+				return
+			}
+		} else {
+			// Convert to WebP using ImageMagick / cwebp
+			if err := convertImageToWebP(req.Context(), tmpPath, targetPath, fileSize); err != nil {
+				log.Printf("WebP conversion warning (%v), falling back to raw save", err)
+				if copyErr := copyFileContents(tmpPath, targetPath); copyErr != nil {
+					writeError(w, http.StatusInternalServerError, "Failed to process and save image: "+err.Error())
+					return
+				}
+			}
+		}
+	}
+
+	fileInfo := map[string]any{
+		"name": finalName,
+		"url":  fmt.Sprintf("./tileimg/%s", finalName),
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":  "success",
+		"message": "Image uploaded successfully.",
+		"name":    finalName,
+		"image":   fileInfo,
+		"file":    fileInfo,
+	})
+}
+
+func convertImageToWebP(ctx context.Context, srcPath, dstPath string, fileSize int64) error {
+	quality := 85
+	resize := false
+	if fileSize > 102400 {
+		quality = 40
+		resize = true
+	}
+
+	// Try ImageMagick binaries
+	imCandidates := []string{
+		"magick",
+		"convert",
+		"/opt/homebrew/bin/magick",
+		"/opt/homebrew/bin/convert",
+		"/usr/local/bin/magick",
+		"/usr/local/bin/convert",
+		"/usr/bin/magick",
+		"/usr/bin/convert",
+	}
+
+	for _, cand := range imCandidates {
+		binPath := cand
+		if path, err := exec.LookPath(cand); err == nil {
+			binPath = path
+		} else if _, err := os.Stat(cand); err != nil {
+			continue
+		}
+
+		var args []string
+		args = append(args, srcPath)
+		if resize {
+			args = append(args, "-resize", "640x640>")
+		}
+		args = append(args, "-quality", strconv.Itoa(quality), dstPath)
+
+		cmd := exec.CommandContext(ctx, binPath, args...)
+		if output, err := cmd.CombinedOutput(); err == nil {
+			return nil
+		} else {
+			log.Printf("Image converter (%s) error: %v, output: %s", binPath, err, string(output))
+		}
+	}
+
+	// Fallback to cwebp
+	cwebpCandidates := []string{
+		"cwebp",
+		"/opt/homebrew/bin/cwebp",
+		"/usr/local/bin/cwebp",
+		"/usr/bin/cwebp",
+	}
+	for _, cand := range cwebpCandidates {
+		binPath := cand
+		if path, err := exec.LookPath(cand); err == nil {
+			binPath = path
+		} else if _, err := os.Stat(cand); err != nil {
+			continue
+		}
+
+		var args []string
+		args = append(args, "-q", strconv.Itoa(quality))
+		if resize {
+			args = append(args, "-resize", "640", "0")
+		}
+		args = append(args, srcPath, "-o", dstPath)
+
+		cmd := exec.CommandContext(ctx, binPath, args...)
+		if output, err := cmd.CombinedOutput(); err == nil {
+			return nil
+		} else {
+			log.Printf("cwebp converter (%s) error: %v, output: %s", binPath, err, string(output))
+		}
+	}
+
+	return fmt.Errorf("no working image conversion utility found")
+}
+
+func copyFileContents(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, in)
+	return err
 }
 
 func (r *Router) handleAdminRenameImage(w http.ResponseWriter, req *http.Request) {
