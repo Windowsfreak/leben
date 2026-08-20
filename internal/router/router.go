@@ -619,20 +619,20 @@ func (r *Router) handleAdminEditHTMLWithLLM(w http.ResponseWriter, req *http.Req
 // Image & Asset Handlers
 
 func (r *Router) handleAdminListImages(w http.ResponseWriter, req *http.Request) {
-	r.listDirFiles(w, "img")
+	r.listDirFiles(w, "tileimg")
 }
 
 func (r *Router) handleAdminUploadImage(w http.ResponseWriter, req *http.Request) {
-	r.uploadFile(w, req, "img")
+	r.uploadFile(w, req, "tileimg")
 }
 
 func (r *Router) handleAdminRenameImage(w http.ResponseWriter, req *http.Request) {
-	r.renameFile(w, req, "img")
+	r.renameFile(w, req, "tileimg")
 }
 
 func (r *Router) handleAdminDeleteImage(w http.ResponseWriter, req *http.Request) {
 	ps := httprouter.ParamsFromContext(req.Context())
-	r.deleteFile(w, "img", ps.ByName("name"))
+	r.deleteFile(w, "tileimg", ps.ByName("name"))
 }
 
 func (r *Router) handleAdminListAssets(w http.ResponseWriter, req *http.Request) {
@@ -679,7 +679,7 @@ func (r *Router) listDirFiles(w http.ResponseWriter, dirName string) {
 		"status": "success",
 		"files":  files,
 	}
-	if dirName == "img" {
+	if dirName == "tileimg" || dirName == "img" {
 		res["images"] = files
 	} else if dirName == "assets" {
 		res["assets"] = files

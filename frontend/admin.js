@@ -1475,7 +1475,7 @@ function loadImagePickerFiles() {
                 const item = document.createElement('div');
                 item.className = 'image-picker-item';
                 item.setAttribute('data-name', img.name);
-                const imgUrl = img.url || `./img/${img.name}`;
+                const imgUrl = img.url || `./tileimg/${img.name}`;
                 
                 item.innerHTML = `
                     <img src="${imgUrl}?v=${Date.now()}" alt="${img.name}">
@@ -1492,7 +1492,7 @@ function loadImagePickerFiles() {
                         return; // let buttons handle it
                     }
                     // Insert CSS background rule
-                    document.getElementById('editBackground').value = `url(./img/${img.name}) center/cover`;
+                    document.getElementById('editBackground').value = `url(./tileimg/${img.name}) center/cover`;
                     formDirty = true;
                     updateLivePreview();
                     document.getElementById('imagePickerDialog').close();
