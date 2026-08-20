@@ -24,6 +24,10 @@ llm:
   user: ""
   pass: ""
 
+deepl:
+  api_key: ""
+  url: "https://api-free.deepl.com/v2/translate"
+
 admin:
   # Default password hash for 'admin123'
   password_hash: "$2y$10$.8UcGLDKeZDoCLVZjNSac.7vwrMVwj1QLZLhQOLDSH5Ywo14QRhp2"

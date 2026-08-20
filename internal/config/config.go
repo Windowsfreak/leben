@@ -41,11 +41,17 @@ type AdminConfig struct {
 	SecretToken  string `yaml:"secret_token"`
 }
 
+type DeepLConfig struct {
+	APIKey string `yaml:"api_key"`
+	URL    string `yaml:"url"`
+}
+
 type Config struct {
 	Server    ServerConfig    `yaml:"server"`
 	Database  DatabaseConfig  `yaml:"database"`
 	Embedding EmbeddingConfig `yaml:"embedding"`
 	LLM       LLMConfig       `yaml:"llm"`
+	DeepL     DeepLConfig     `yaml:"deepl"`
 	Admin     AdminConfig     `yaml:"admin"`
 }
 
@@ -78,6 +84,10 @@ func Load(path string) (*Config, error) {
 		LLM: LLMConfig{
 			URL:   "http://localhost:3001",
 			Model: "auto",
+		},
+		DeepL: DeepLConfig{
+			APIKey: "",
+			URL:    "https://api-free.deepl.com/v2/translate",
 		},
 	}
 

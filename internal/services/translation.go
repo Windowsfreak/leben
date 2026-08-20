@@ -21,6 +21,7 @@ type TranslationService struct {
 	tileSvc    *TileService
 	llmSvc     *LLMService
 	ollamaSvc  *OllamaService
+	deepLSvc   *DeepLService
 	taskMgr    *tasks.Manager
 }
 
@@ -38,6 +39,7 @@ func NewTranslationService(
 		tileSvc:   tileSvc,
 		llmSvc:    llmSvc,
 		ollamaSvc: ollamaSvc,
+		deepLSvc:  NewDeepLService(cfg),
 		taskMgr:   taskMgr,
 	}
 }
@@ -105,7 +107,6 @@ func (s *TranslationService) runTranslateTask(ctx context.Context, taskID, name,
 	}
 
 	contentsDir := filepath.Join(s.cfg.Server.WebDir, "content")
-
 	var results []map[string]string
 
 	for idx, tLang := range targets {
@@ -121,65 +122,44 @@ func (s *TranslationService) runTranslateTask(ctx context.Context, taskID, name,
 			langFullName = strings.ToUpper(tLang)
 		}
 
+		// 1. Translate Metadata
 		s.taskMgr.UpdateTaskProgress(taskID, fmt.Sprintf("[%d/%d] Translating metadata to %s...", idx+1, len(targets), langFullName))
-
-		metaPrompt := fmt.Sprintf(`You are an expert content translator. Translate the following tile metadata from %s into %s.
-Respond ONLY with a valid JSON object (no markdown, no backticks):
-{
-  "title": "Translated Title",
-  "summary": "Translated summary...",
-  "tags": "tag1, tag2"
-}`, strings.ToUpper(sourceTile.Language), langFullName)
-
-		metaUser := fmt.Sprintf("Source Title: %s\nSource Tags: %s\nSource Summary: %s",
-			sourceTile.Title, sourceTile.Tags, sourceTile.Summary)
-
-		metaRes, err := s.llmSvc.CallLLM(ctx, metaPrompt, metaUser)
+		transMeta, err := s.translateMetadata(ctx, sourceTile, tLang, langFullName, taskID)
 		if err != nil {
-			s.taskMgr.FailTask(taskID, fmt.Errorf("LLM metadata translation failed for %s: %w", tLang, err))
+			s.taskMgr.FailTask(taskID, fmt.Errorf("metadata translation failed for %s: %w", tLang, err))
 			return
 		}
 
-		cleanJSON := stripBackticks(metaRes)
-		var transMeta translatedMetadata
-		if err := json.Unmarshal([]byte(cleanJSON), &transMeta); err != nil {
-			s.taskMgr.FailTask(taskID, fmt.Errorf("invalid metadata JSON from LLM (%s): %w", tLang, err))
-			return
-		}
-
-		// Translate Teaser
-		s.taskMgr.UpdateTaskProgress(taskID, fmt.Sprintf("[%d/%d] Translating HTML teaser to %s...", idx+1, len(targets), langFullName))
-		htmlPrompt := fmt.Sprintf("You are an expert HTML translator. Translate all human-readable text in the provided HTML snippet into %s.\nKeep all HTML tags, structure, classes, IDs, icons (<i class=\"...\"></i>), and attributes intact.\nRespond ONLY with the translated HTML string. Do not include markdown code block formatting (no backticks like ```html).", langFullName)
-
+		// 2. Translate Teaser
 		translatedTeaser := ""
-		if sourceTile.HTMLTeaser != "" {
-			teaserRes, err := s.llmSvc.CallLLM(ctx, htmlPrompt, sourceTile.HTMLTeaser)
+		if strings.TrimSpace(sourceTile.HTMLTeaser) != "" {
+			s.taskMgr.UpdateTaskProgress(taskID, fmt.Sprintf("[%d/%d] Translating HTML teaser to %s...", idx+1, len(targets), langFullName))
+			teaserRes, err := s.translateHTML(ctx, sourceTile.HTMLTeaser, sourceTile.Language, tLang, langFullName, taskID, "teaser")
 			if err != nil {
-				s.taskMgr.FailTask(taskID, fmt.Errorf("LLM teaser translation failed for %s: %w", tLang, err))
+				s.taskMgr.FailTask(taskID, fmt.Errorf("teaser translation failed for %s: %w", tLang, err))
 				return
 			}
-			translatedTeaser = stripBackticks(teaserRes)
+			translatedTeaser = teaserRes
 		}
 
-		// Translate content file if exists
+		// 3. Translate content file if exists
 		targetContentFile := ""
 		if sourceTile.ContentFile != "" {
 			s.taskMgr.UpdateTaskProgress(taskID, fmt.Sprintf("[%d/%d] Translating content file to %s...", idx+1, len(targets), langFullName))
 			sourceFilePath := filepath.Join(contentsDir, sourceTile.ContentFile)
 			if contentBytes, err := os.ReadFile(sourceFilePath); err == nil {
-				contentRes, err := s.llmSvc.CallLLM(ctx, htmlPrompt, string(contentBytes))
+				contentRes, err := s.translateHTML(ctx, string(contentBytes), sourceTile.Language, tLang, langFullName, taskID, "content file")
 				if err != nil {
-					s.taskMgr.FailTask(taskID, fmt.Errorf("LLM content translation failed for %s: %w", tLang, err))
+					s.taskMgr.FailTask(taskID, fmt.Errorf("content translation failed for %s: %w", tLang, err))
 					return
 				}
-				translatedContent := stripBackticks(contentRes)
 
 				baseName := strings.TrimSuffix(sourceTile.ContentFile, filepath.Ext(sourceTile.ContentFile))
 				re := regexp.MustCompile(`[_\-][a-zA-Z]{2}$`)
 				baseClean := re.ReplaceAllString(baseName, "")
 				targetContentFile = fmt.Sprintf("%s_%s.html", baseClean, tLang)
 
-				_ = os.WriteFile(filepath.Join(contentsDir, targetContentFile), []byte(translatedContent), 0644)
+				_ = os.WriteFile(filepath.Join(contentsDir, targetContentFile), []byte(contentRes), 0644)
 			}
 		}
 
@@ -221,7 +201,6 @@ Respond ONLY with a valid JSON object (no markdown, no backticks):
 			SortOrder:   sourceTile.SortOrder,
 		}
 
-		// Check if target tile already exists to retain ID
 		if existing, err := s.tileSvc.GetTile(ctx, name, tLang, nil, true); err == nil && existing != nil {
 			targetTile.ID = existing.ID
 		}
@@ -244,6 +223,130 @@ Respond ONLY with a valid JSON object (no markdown, no backticks):
 		"source_language": sourceTile.Language,
 		"translated":      results,
 	})
+}
+
+// translateMetadata translates title, summary, and tags using DeepL if available, with LLM fallback.
+func (s *TranslationService) translateMetadata(ctx context.Context, sourceTile *models.Tile, targetLang, targetFullName, taskID string) (*translatedMetadata, error) {
+	// Try DeepL first if configured
+	if s.deepLSvc != nil && s.deepLSvc.IsConfigured() {
+		metaTexts := []string{sourceTile.Title, sourceTile.Summary, sourceTile.Tags}
+		translated, err := s.deepLSvc.Translate(ctx, metaTexts, sourceTile.Language, targetLang)
+		if err == nil && len(translated) == 3 {
+			return &translatedMetadata{
+				Title:   strings.TrimSpace(translated[0]),
+				Summary: strings.TrimSpace(translated[1]),
+				Tags:    strings.TrimSpace(translated[2]),
+			}, nil
+		}
+		// DeepL failed or had error, fallback to LLM
+		s.taskMgr.UpdateTaskProgress(taskID, fmt.Sprintf("DeepL metadata translation encountered issue (%v), falling back to LLM...", err))
+	}
+
+	// LLM Fallback with Sister-Document prompting
+	metaPrompt := fmt.Sprintf(`You are an elite bilingual author and translator. Translate the following tile metadata from %s into %s so that it reads naturally and idiomatically as an authentic sister document.
+Respond ONLY with a valid JSON object (no markdown formatting, no backticks):
+{
+  "title": "Translated Title",
+  "summary": "Translated summary...",
+  "tags": "tag1, tag2"
+}`, strings.ToUpper(sourceTile.Language), targetFullName)
+
+	metaUser := fmt.Sprintf("Source Title: %s\nSource Tags: %s\nSource Summary: %s",
+		sourceTile.Title, sourceTile.Tags, sourceTile.Summary)
+
+	metaRes, err := s.llmSvc.CallLLM(ctx, metaPrompt, metaUser)
+	if err != nil {
+		return nil, fmt.Errorf("LLM metadata translation failed: %w", err)
+	}
+
+	cleanJSON := stripBackticks(metaRes)
+	var transMeta translatedMetadata
+	if err := json.Unmarshal([]byte(cleanJSON), &transMeta); err != nil {
+		return nil, fmt.Errorf("invalid metadata JSON from LLM: %w", err)
+	}
+
+	return &transMeta, nil
+}
+
+// translateHTML translates HTML content using Mustache tag masking + collapsing with DeepL / LLM.
+func (s *TranslationService) translateHTML(ctx context.Context, sourceHTML, sourceLang, targetLang, targetFullName, taskID, label string) (string, error) {
+	if strings.TrimSpace(sourceHTML) == "" {
+		return "", nil
+	}
+
+	// 1. Mask HTML tags & collapse adjacent tags/whitespace into Mustache tokens {{M#}}
+	maskedText, tokenMap, stats := MaskHTML(sourceHTML)
+	if len(tokenMap) == 0 {
+		maskedText = sourceHTML
+	}
+
+	firstToken := ""
+	lastToken := ""
+	if stats.TokenCount > 0 {
+		firstToken = "{{M0}}"
+		lastToken = fmt.Sprintf("{{M%d}}", stats.TokenCount-1)
+	}
+
+	var translatedMasked string
+	var translationErr error
+
+	// 2. Try DeepL first if available
+	if s.deepLSvc != nil && s.deepLSvc.IsConfigured() {
+		s.taskMgr.UpdateTaskProgress(taskID, fmt.Sprintf("Translating %s via DeepL (masked chars saved: %d / %.1f%%)...", label, stats.CharactersSaved, stats.PercentSaved))
+		res, err := s.deepLSvc.TranslateSingle(ctx, maskedText, sourceLang, targetLang)
+		if err == nil {
+			translatedMasked = res
+		} else {
+			translationErr = err
+			s.taskMgr.UpdateTaskProgress(taskID, fmt.Sprintf("DeepL %s translation failed (%v), falling back to LLM...", label, err))
+		}
+	}
+
+	// 3. Fallback to LLM if DeepL is unconfigured or failed
+	if translatedMasked == "" {
+		s.taskMgr.UpdateTaskProgress(taskID, fmt.Sprintf("Translating %s via LLM sister-document engine...", label))
+
+		completionRequirement := ""
+		if lastToken != "" {
+			completionRequirement = fmt.Sprintf("You MUST translate the complete text from %s through the final closing token %s. Never stop early.", firstToken, lastToken)
+		}
+
+		htmlSystemPrompt := fmt.Sprintf(`You are an elite bilingual author and professional translator.
+Translate the provided text from %s into %s so that the result reads as an authentic, compelling "sister document"—maintaining the original work's depth, eloquence, tone, and stylistic nuance without sounding like a robotic word-for-word translation.
+
+CRITICAL RULES:
+1. MUSTACHE TOKENS: The text contains layout tokens formatted as {{M0}}, {{M1}}, {{M2}}, etc.
+   - You MUST preserve every single token {{M#}} EXACTLY in place.
+   - Do NOT translate, alter, delete, or add any {{M#}} tokens.
+2. COMPLETION: %s
+3. ZERO PREAMBLE / ZERO CONVERSATIONAL FILLER:
+   - Begin your output IMMEDIATELY with the translation or first token.
+   - NEVER say "Here is the translation", "I understand", "Paragraph 1:", or similar introductory/commentary text.
+   - Do NOT wrap output in markdown code blocks (NO `+"```"+` or `+"```html"+`).`,
+			strings.ToUpper(sourceLang), targetFullName, completionRequirement)
+
+		llmRes, err := s.llmSvc.CallLLM(ctx, htmlSystemPrompt, maskedText)
+		if err != nil {
+			if translationErr != nil {
+				return "", fmt.Errorf("both DeepL (%v) and LLM (%w) failed", translationErr, err)
+			}
+			return "", fmt.Errorf("LLM translation failed: %w", err)
+		}
+
+		translatedMasked = CleanLLMTranslationOutput(llmRes, firstToken, lastToken)
+	}
+
+	// 4. Validate token completeness
+	if len(tokenMap) > 0 {
+		if missing, err := ValidateMaskTokens(translatedMasked, tokenMap); err != nil {
+			// Log missing tokens for diagnostic visibility
+			s.taskMgr.UpdateTaskProgress(taskID, fmt.Sprintf("Warning: %d tokens missing after translation (%v). Restoring available tokens.", len(missing), missing))
+		}
+	}
+
+	// 5. Unmask back to full HTML
+	unmaskedHTML := UnmaskHTML(translatedMasked, tokenMap)
+	return unmaskedHTML, nil
 }
 
 func stripBackticks(input string) string {
