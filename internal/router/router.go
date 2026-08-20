@@ -101,6 +101,7 @@ func (r *Router) setupRoutes() {
 	r.router.POST("/api/admin/config", r.wrapAuth(r.handleAdminSaveConfig))
 
 	r.router.GET("/api/admin/tasks", r.wrapAuth(r.handleAdminGetTasks))
+	r.router.GET("/api/admin/tasks/:id", r.wrapAuth(r.handleAdminGetTaskByID))
 	r.router.POST("/api/admin/tasks/:id/cancel", r.wrapAuth(r.handleAdminCancelTask))
 
 	r.router.GET("/api/admin/content/:file", r.wrapAuth(r.handleAdminGetContentFile))
@@ -448,6 +449,22 @@ func (r *Router) handleAdminGetTasks(w http.ResponseWriter, req *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status": "success",
 		"tasks":  tasksList,
+	})
+}
+
+func (r *Router) handleAdminGetTaskByID(w http.ResponseWriter, req *http.Request) {
+	ps := httprouter.ParamsFromContext(req.Context())
+	id := ps.ByName("id")
+
+	task, ok := r.taskMgr.GetTask(id)
+	if !ok {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("Task '%s' not found.", id))
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "success",
+		"task":   task,
 	})
 }
 

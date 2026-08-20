@@ -3,6 +3,7 @@ package tasks
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -152,6 +153,9 @@ func (m *Manager) GetTasks() []*models.TranslationTask {
 		t := *entry.task
 		list = append(list, &t)
 		return true
+	})
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].StartedAt.After(list[j].StartedAt)
 	})
 	return list
 }

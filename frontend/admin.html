@@ -6,6 +6,9 @@
     <div class="admin-actions">
         <button class="btn-admin btn-admin-primary" id="addTileBtn" title="Kachel Hinzufügen"><i
                 class="fa-solid fa-plus"></i> <span class="btn-text">Kachel Hinzufügen</span></button>
+        <button class="btn-admin" id="tasksBtn" title="Hintergrund-Aufgaben anzeigen"><i
+                class="fa-solid fa-list-check"></i> <span class="btn-text">Aufgaben</span><span
+                id="runningTasksCountBadge" class="task-count-badge" style="display:none;">0</span></button>
         <button class="btn-admin" id="editSettingsBtn" title="Einstellungen"><i class="fa-solid fa-gear"></i>
             <span class="btn-text">Einstellungen</span></button>
         <button class="btn-admin" id="refreshVectorsBtn" title="Vektoren Neu Generieren"><i
@@ -321,3 +324,28 @@
         </div>
     </div>
 </dialog>
+
+<!-- 8. TASKS MONITOR DIALOG -->
+<dialog id="tasksDialog" style="max-width: 800px; width: 95%;">
+    <div class="dialog-container">
+        <div class="dialog-header-bar">
+            <div class="dialog-header-title"><i class="fa-solid fa-list-check" style="color: var(--accent);"></i> Hintergrund-Aufgaben & KI-Status</div>
+            <button class="close-btn" id="closeTasksBtn">&times;</button>
+        </div>
+        <div class="dialog-body">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; gap: 1rem; flex-wrap: wrap;">
+                <span style="font-size: 0.85rem; color: var(--text-secondary);">Aktive und kürzlich ausgeführte Übersetzungs- und KI-Aufgaben im Backend-Speicher.</span>
+                <button type="button" class="btn-admin" id="refreshTasksBtn" title="Liste aktualisieren"><i class="fa-solid fa-arrows-rotate"></i> Aktualisieren</button>
+            </div>
+            <div id="tasksListContainer" class="tasks-list">
+                <!-- Dynamically rendered -->
+            </div>
+            <div class="mt-4" style="display: flex; justify-content: flex-end;">
+                <button type="button" class="btn" id="closeTasksBtn2">Schließen</button>
+            </div>
+        </div>
+    </div>
+</dialog>
+
+<!-- 9. LIVE TASK TOASTS CONTAINER -->
+<div id="taskToastsContainer" class="task-toasts-container"></div>

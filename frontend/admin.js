@@ -72,6 +72,8 @@ function setAdminMode(active) {
             adminBar.classList.add('active');
             lazyLoadMonaco();
             fetchTranslationStatuses();
+            updateRunningTasksBadge();
+            checkAndResumeRunningTasks();
         } else {
             adminBar.classList.remove('active');
         }
@@ -747,6 +749,19 @@ function initAdmin() {
         openEditor();
     });
 
+    // Tasks Button & Dialog
+    const tasksBtn = document.getElementById('tasksBtn');
+    if (tasksBtn) tasksBtn.addEventListener('click', openTasksDialog);
+
+    const closeTasksBtn = document.getElementById('closeTasksBtn');
+    if (closeTasksBtn) closeTasksBtn.addEventListener('click', () => document.getElementById('tasksDialog').close());
+
+    const closeTasksBtn2 = document.getElementById('closeTasksBtn2');
+    if (closeTasksBtn2) closeTasksBtn2.addEventListener('click', () => document.getElementById('tasksDialog').close());
+
+    const refreshTasksBtn = document.getElementById('refreshTasksBtn');
+    if (refreshTasksBtn) refreshTasksBtn.addEventListener('click', loadTasksList);
+
     // Settings Button
     document.getElementById('editSettingsBtn').addEventListener('click', openSettingsEditor);
 
@@ -1174,9 +1189,13 @@ function triggerAutoTranslate() {
                 .then(res => res.json())
                 .then(res => {
                     if (res.status === 'success') {
-                        alert(res.message);
                         document.getElementById('editorDialog').close();
-                        resetAndLoad();
+                        if (res.task && res.task.id) {
+                            startTaskPolling(res.task.id, tileName);
+                        } else {
+                            alert(res.message);
+                            resetAndLoad();
+                        }
                     } else {
                         alert(`Fehler bei der KI-Übersetzung: ${res.message}`);
                     }
@@ -1627,3 +1646,311 @@ function deleteImage(filename) {
         console.error(err);
     });
 }
+
+// ----------------------------------------------------
+// TASK MONITORING & LIVE STATUS POLLING
+// ----------------------------------------------------
+
+function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+const activeTaskPollers = new Map();
+
+function startTaskPolling(taskId, tileName) {
+    if (!taskId) return;
+    if (activeTaskPollers.has(taskId)) return;
+
+    let toast = document.getElementById(`task-toast-${taskId}`);
+    if (!toast) {
+        const container = document.getElementById('taskToastsContainer');
+        if (container) {
+            toast = document.createElement('div');
+            toast.id = `task-toast-${taskId}`;
+            toast.className = 'task-toast';
+            toast.innerHTML = `
+                <div class="task-toast-header">
+                    <div class="task-toast-title">
+                        <i class="fa-solid fa-spinner fa-spin" id="task-icon-${taskId}" style="color: #60a5fa;"></i>
+                        <span>Übersetzung: <strong>${escapeHtml(tileName || 'Kachel')}</strong></span>
+                    </div>
+                    <span class="task-toast-status-badge task-status-running" id="task-badge-${taskId}">Läuft...</span>
+                </div>
+                <div class="task-toast-progress" id="task-progress-${taskId}">Initialisiere...</div>
+                <div class="task-toast-error" id="task-error-${taskId}" style="display:none;"></div>
+                <div class="task-toast-actions" id="task-actions-${taskId}">
+                    <button type="button" class="btn btn-sm" id="task-cancel-btn-${taskId}" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4);">Abbrechen</button>
+                </div>
+            `;
+            container.appendChild(toast);
+
+            const cancelBtn = toast.querySelector(`#task-cancel-btn-${taskId}`);
+            if (cancelBtn) {
+                cancelBtn.addEventListener('click', () => cancelTask(taskId));
+            }
+        }
+    }
+
+    updateRunningTasksBadge();
+
+    const poll = () => {
+        fetch(`/api/admin/tasks/${encodeURIComponent(taskId)}`, { headers: buildApiHeaders() })
+            .then(res => {
+                if (!res.ok) throw new Error("Task nicht gefunden");
+                return res.json();
+            })
+            .then(res => {
+                if (res.status === 'success' && res.task) {
+                    const t = res.task;
+                    const progressEl = document.getElementById(`task-progress-${taskId}`);
+                    const badgeEl = document.getElementById(`task-badge-${taskId}`);
+                    const iconEl = document.getElementById(`task-icon-${taskId}`);
+                    const errorEl = document.getElementById(`task-error-${taskId}`);
+                    const actionsEl = document.getElementById(`task-actions-${taskId}`);
+
+                    if (progressEl) progressEl.textContent = t.progress || '';
+
+                    if (t.status === 'completed') {
+                        clearInterval(activeTaskPollers.get(taskId));
+                        activeTaskPollers.delete(taskId);
+                        updateRunningTasksBadge();
+
+                        if (badgeEl) {
+                            badgeEl.className = 'task-toast-status-badge task-status-completed';
+                            badgeEl.textContent = 'Abgeschlossen';
+                        }
+                        if (iconEl) {
+                            iconEl.className = 'fa-solid fa-circle-check';
+                            iconEl.style.color = '#4ade80';
+                        }
+                        if (actionsEl) {
+                            actionsEl.innerHTML = `<button type="button" class="btn btn-sm" id="dismiss-toast-${taskId}">Schließen</button>`;
+                            const dismissBtn = actionsEl.querySelector(`#dismiss-toast-${taskId}`);
+                            if (dismissBtn) dismissBtn.addEventListener('click', () => dismissTaskToast(taskId));
+                        }
+
+                        // Refresh grid and translation statuses
+                        fetchTranslationStatuses();
+                        if (typeof resetAndLoad === 'function') resetAndLoad();
+
+                        // Auto-dismiss after 6s
+                        setTimeout(() => {
+                            dismissTaskToast(taskId);
+                        }, 6000);
+                    } else if (t.status === 'failed') {
+                        clearInterval(activeTaskPollers.get(taskId));
+                        activeTaskPollers.delete(taskId);
+                        updateRunningTasksBadge();
+
+                        if (badgeEl) {
+                            badgeEl.className = 'task-toast-status-badge task-status-failed';
+                            badgeEl.textContent = 'Fehlgeschlagen';
+                        }
+                        if (iconEl) {
+                            iconEl.className = 'fa-solid fa-triangle-exclamation';
+                            iconEl.style.color = '#f87171';
+                        }
+                        if (errorEl) {
+                            errorEl.textContent = t.error || 'Unbekannter Fehler bei der Ausführung.';
+                            errorEl.style.display = 'block';
+                        }
+                        if (actionsEl) {
+                            actionsEl.innerHTML = `<button type="button" class="btn btn-sm" id="dismiss-toast-${taskId}">Schließen</button>`;
+                            const dismissBtn = actionsEl.querySelector(`#dismiss-toast-${taskId}`);
+                            if (dismissBtn) dismissBtn.addEventListener('click', () => dismissTaskToast(taskId));
+                        }
+                    } else if (t.status === 'cancelled') {
+                        clearInterval(activeTaskPollers.get(taskId));
+                        activeTaskPollers.delete(taskId);
+                        updateRunningTasksBadge();
+
+                        if (badgeEl) {
+                            badgeEl.className = 'task-toast-status-badge task-status-cancelled';
+                            badgeEl.textContent = 'Abgebrochen';
+                        }
+                        if (iconEl) {
+                            iconEl.className = 'fa-solid fa-ban';
+                            iconEl.style.color = '#94a3b8';
+                        }
+                        if (actionsEl) {
+                            actionsEl.innerHTML = `<button type="button" class="btn btn-sm" id="dismiss-toast-${taskId}">Schließen</button>`;
+                            const dismissBtn = actionsEl.querySelector(`#dismiss-toast-${taskId}`);
+                            if (dismissBtn) dismissBtn.addEventListener('click', () => dismissTaskToast(taskId));
+                        }
+                    }
+                }
+            })
+            .catch(err => {
+                console.warn(`Polling error for task ${taskId}:`, err);
+            });
+    };
+
+    poll();
+    const intervalId = setInterval(poll, 1200);
+    activeTaskPollers.set(taskId, intervalId);
+}
+
+function dismissTaskToast(taskId) {
+    if (activeTaskPollers.has(taskId)) {
+        clearInterval(activeTaskPollers.get(taskId));
+        activeTaskPollers.delete(taskId);
+    }
+    const toast = document.getElementById(`task-toast-${taskId}`);
+    if (toast) {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(10px) scale(0.95)';
+        setTimeout(() => toast.remove(), 300);
+    }
+    updateRunningTasksBadge();
+}
+
+function cancelTask(taskId) {
+    if (!confirm("Möchtest Du diese Hintergrund-Aufgabe wirklich abbrechen?")) return;
+
+    fetch(`/api/admin/tasks/${encodeURIComponent(taskId)}/cancel`, {
+        method: 'POST',
+        headers: buildApiHeaders()
+    })
+        .then(res => res.json())
+        .then(res => {
+            if (res.status === 'success') {
+                const badgeEl = document.getElementById(`task-badge-${taskId}`);
+                if (badgeEl) {
+                    badgeEl.className = 'task-toast-status-badge task-status-cancelled';
+                    badgeEl.textContent = 'Abgebrochen';
+                }
+                const progressEl = document.getElementById(`task-progress-${taskId}`);
+                if (progressEl) progressEl.textContent = 'Vom Benutzer abgebrochen.';
+            } else {
+                alert(`Fehler beim Abbrechen: ${res.message}`);
+            }
+        })
+        .catch(err => {
+            alert("Fehler bei der Kommunikation mit dem Server.");
+        });
+}
+
+function updateRunningTasksBadge() {
+    const badge = document.getElementById('runningTasksCountBadge');
+    if (!badge) return;
+
+    fetch('/api/admin/tasks', { headers: buildApiHeaders() })
+        .then(res => res.json())
+        .then(res => {
+            if (res.status === 'success' && Array.isArray(res.tasks)) {
+                const runningCount = res.tasks.filter(t => t.status === 'running' || t.status === 'pending').length;
+                if (runningCount > 0) {
+                    badge.textContent = runningCount;
+                    badge.style.display = 'inline-block';
+                } else {
+                    badge.style.display = 'none';
+                }
+            }
+        })
+        .catch(() => {});
+}
+
+function openTasksDialog() {
+    const dialog = document.getElementById('tasksDialog');
+    if (!dialog) return;
+
+    loadTasksList();
+    dialog.showModal();
+}
+
+function loadTasksList() {
+    const container = document.getElementById('tasksListContainer');
+    if (!container) return;
+
+    container.innerHTML = '<div style="text-align:center; padding: 2rem; color: var(--text-secondary);"><i class="fa-solid fa-spinner fa-spin"></i> Lade Aufgaben...</div>';
+
+    fetch('/api/admin/tasks', { headers: buildApiHeaders() })
+        .then(res => res.json())
+        .then(res => {
+            if (res.status !== 'success' || !Array.isArray(res.tasks) || res.tasks.length === 0) {
+                container.innerHTML = '<div style="text-align:center; padding: 2rem; color: var(--text-secondary);"><i class="fa-solid fa-inbox" style="font-size: 2rem; margin-bottom: 0.5rem; display:block; opacity: 0.5;"></i>Keine Hintergrund-Aufgaben im Speicher vorhanden.</div>';
+                return;
+            }
+
+            container.innerHTML = '';
+            res.tasks.forEach(t => {
+                const card = document.createElement('div');
+                card.className = 'task-card';
+
+                let statusBadgeClass = 'task-status-running';
+                let statusText = 'Läuft';
+                let statusIcon = '<i class="fa-solid fa-spinner fa-spin"></i>';
+
+                if (t.status === 'completed') {
+                    statusBadgeClass = 'task-status-completed';
+                    statusText = 'Abgeschlossen';
+                    statusIcon = '<i class="fa-solid fa-circle-check"></i>';
+                } else if (t.status === 'failed') {
+                    statusBadgeClass = 'task-status-failed';
+                    statusText = 'Fehlgeschlagen';
+                    statusIcon = '<i class="fa-solid fa-triangle-exclamation"></i>';
+                } else if (t.status === 'cancelled') {
+                    statusBadgeClass = 'task-status-cancelled';
+                    statusText = 'Abgebrochen';
+                    statusIcon = '<i class="fa-solid fa-ban"></i>';
+                }
+
+                const startedStr = t.started_at ? new Date(t.started_at).toLocaleTimeString() : '';
+                const completedStr = t.completed_at ? new Date(t.completed_at).toLocaleTimeString() : '';
+
+                card.innerHTML = `
+                    <div class="task-card-header">
+                        <div class="task-card-name">${escapeHtml(t.tile_name || 'Unbekannt')} <span style="font-size:0.75rem; font-weight:normal; color:var(--text-secondary);">(${escapeHtml(t.target_lang || 'all')})</span></div>
+                        <span class="task-toast-status-badge ${statusBadgeClass}">${statusIcon} ${statusText}</span>
+                    </div>
+                    <div class="task-card-meta">
+                        <span><i class="fa-regular fa-clock"></i> Gestartet: ${startedStr}</span>
+                        ${completedStr ? `<span><i class="fa-solid fa-flag-checkered"></i> Beendet: ${completedStr}</span>` : ''}
+                        <span style="font-family: monospace; font-size: 0.7rem; opacity: 0.7;">ID: ${t.id ? t.id.substring(0, 8) : ''}...</span>
+                    </div>
+                    <div class="task-card-progress"><strong>Status:</strong> ${escapeHtml(t.progress || '')}</div>
+                    ${t.error ? `<div class="task-card-error"><strong>Fehlerdetails:</strong><br>${escapeHtml(t.error)}</div>` : ''}
+                    ${(t.status === 'running' || t.status === 'pending') ? `
+                        <div style="display:flex; justify-content:flex-end; margin-top: 0.25rem;">
+                            <button type="button" class="btn btn-sm" id="cancel-task-btn-${t.id}" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4);">Abbrechen</button>
+                        </div>
+                    ` : ''}
+                `;
+                container.appendChild(card);
+
+                const cBtn = card.querySelector(`#cancel-task-btn-${t.id}`);
+                if (cBtn) {
+                    cBtn.addEventListener('click', () => {
+                        cancelTask(t.id);
+                        setTimeout(loadTasksList, 500);
+                    });
+                }
+            });
+        })
+        .catch(err => {
+            container.innerHTML = `<div style="color: #f87171; padding: 1rem;">Fehler beim Laden der Aufgaben: ${escapeHtml(err.message)}</div>`;
+        });
+}
+
+function checkAndResumeRunningTasks() {
+    if (!isAdmin) return;
+    fetch('/api/admin/tasks', { headers: buildApiHeaders() })
+        .then(res => res.json())
+        .then(res => {
+            if (res.status === 'success' && Array.isArray(res.tasks)) {
+                res.tasks.forEach(t => {
+                    if ((t.status === 'running' || t.status === 'pending') && !activeTaskPollers.has(t.id)) {
+                        startTaskPolling(t.id, t.tile_name);
+                    }
+                });
+            }
+        })
+        .catch(() => {});
+}
+
