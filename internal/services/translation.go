@@ -198,7 +198,7 @@ func (s *TranslationService) runTranslateTask(ctx context.Context, taskID, name,
 			SortOrder:   sourceTile.SortOrder,
 		}
 
-		if existing, err := s.tileSvc.GetTile(ctx, name, tLang, nil, true); err == nil && existing != nil {
+		if existing, err := s.tileSvc.GetTileExact(ctx, name, tLang, nil, true); err == nil && existing != nil {
 			targetTile.ID = existing.ID
 		}
 

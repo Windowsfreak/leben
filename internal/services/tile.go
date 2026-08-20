@@ -265,6 +265,29 @@ func (s *TileService) GetSimilarTiles(ctx context.Context, name, prefLang string
 	return results, nil
 }
 
+func (s *TileService) GetTileExact(ctx context.Context, name, lang string, refCodes []string, showInvisible bool) (*models.Tile, error) {
+	refCodesStr := strings.Join(refCodes, ",")
+	name = strings.ToLower(strings.TrimSpace(name))
+
+	sqlQuery := `
+		SELECT id, name, language, tags, title, html_teaser, summary, link, type, content_file, visible, secret, accent_color, background, embedding, sort_order, created_at, updated_at
+		FROM tiles 
+		WHERE name = $1 AND language = $2 
+		  AND ($3 = true OR (visible = true AND (secret = '' OR secret = ANY(string_to_array($4, ',')))))
+		LIMIT 1
+	`
+	row := s.database.QueryRowContext(ctx, sqlQuery, name, lang, showInvisible, refCodesStr)
+	tile, err := db.ScanTile(row)
+	if err != nil {
+		return nil, err
+	}
+
+	if !showInvisible {
+		tile.Secret = ""
+	}
+	return tile, nil
+}
+
 func (s *TileService) GetTile(ctx context.Context, name, lang string, refCodes []string, showInvisible bool) (*models.Tile, error) {
 	refCodesStr := strings.Join(refCodes, ",")
 	name = strings.ToLower(strings.TrimSpace(name))
