@@ -1,37 +1,96 @@
 # Leben App LLM Admin API Specification (Go Backend)
 
-> Protected administrative APIs for automated AI tools, content CRUD, AI translations, task management, image & asset operations, and MCP protocol.
+> Protected administrative APIs for automated AI tools: passwordless device-flow authentication, token management, content CRUD, AI translations, task management, image & asset operations, and MCP protocol.
+
+Base URL: **https://leben.8bj.de** — all paths below are relative to it.
 
 ## Authentication
-Admin operations require authentication via a token acquired through `POST /api/admin/login` or using the configured secret admin token / password.
+
+Two credential types, both validated against SHA-256-hashed rows in the `api_tokens` table and both individually revocable:
+
+1. **Device-flow API tokens (RFC 8628)** — for tools/scripts/AI clients. Request a code, approve it in a browser with the admin password, receive a `lbn_…` bearer token. See section 1.
+2. **Browser session cookies** — the admin UI logs in with `POST /api/admin/login`, which sets an HttpOnly `leben_session` cookie (expires after the configured `session_ttl_hours`, default 12). Not usable by non-browser clients.
 
 Authentication headers accepted on protected requests:
-- `Authorization: Bearer <admin_token>`
-- `X-Admin-Token: <admin_token>`
-- `X-Admin-Password: <admin_password>`
+- `Authorization: Bearer <api_token>` (device flow)
+- `X-Admin-Token: <api_token>`
+
+The admin password itself is NOT a valid bearer credential, and there is no static secret token anymore.
+
+Sending a valid credential to the **public** endpoints (`GET /api/tiles`, `GET /api/tiles/:name`) also elevates results: invisible and secret cards become visible without needing `X-Reference` codes.
+
+Error shape for all failures: `{"status":"error","message":"..."}`; missing/invalid/revoked credential → HTTP 401; too many attempts on login/device endpoints → HTTP 429.
 
 ---
 
-## 1. Auth & Status (`/api/admin/login`)
+## 1. Device-Flow Authentication (RFC 8628) — passwordless, revocable
+
+The calling tool (e.g. an MCP client) never sees the admin password:
+
+1. Tool calls `POST /api/auth/device` → receives `device_code`, `user_code` (`XXXX-XXXX`), `verification_uri`, `verification_uri_complete`, `expires_in` (600s), `interval` (2s).
+2. The human opens `verification_uri` (`/device.html`) in a browser, enters the `user_code` + admin password, and approves or denies.
+3. Tool polls `POST /api/auth/device/token` until the token is issued (or an error is returned).
+4. The resulting `access_token` (format `lbn_...`) works as `Authorization: Bearer <access_token>` on all admin endpoints and can be revoked at any time (section 2). It is stored server-side only as a SHA-256 hash.
+
+### `POST /api/auth/device`
+- **Auth**: none (public, rate-limited: 10/min per IP)
+- **Req**: empty body (JSON `{"client_name": "..."}` optional, currently unused)
+- **Res**: `{"device_code": "lbn_dev_...", "user_code": "ABCD-EFGH", "verification_uri": "https://leben.8bj.de/device.html", "verification_uri_complete": "https://leben.8bj.de/device.html?code=ABCD-EFGH", "expires_in": 600, "interval": 2}`
+
+### `POST /api/auth/device/authorize`
+- **Auth**: none (the password in the body IS the auth; rate-limited: 5/min per IP)
+- **Req**: JSON `{"user_code": "ABCD-EFGH", "password": "<admin password>", "approve": true}` (`approve:false` denies)
+- **Res 200**: `{"status":"success","message":"Request approved. ..."}`
+- **Res 401**: wrong password. **Res 404**: unknown/expired/already-decided user code.
+
+### `POST /api/auth/device/token`
+- **Auth**: none (public; polling rate-limited, excess → HTTP 429 `{"error":"slow_down"}`)
+- **Req**: JSON `{"grant_type": "urn:ietf:params:oauth:grant-type:device_code", "device_code": "lbn_dev_..."}` (or RFC form-encoded `grant_type`/`device_code`)
+- **Pending**: HTTP 400 `{"error": "authorization_pending"}`
+- **Denied**: HTTP 400 `{"error": "access_denied"}`
+- **Expired/used/unknown code**: HTTP 400 `{"error": "expired_token"}`
+- **Approved**: HTTP 200 `{"access_token": "lbn_...", "token_type": "Bearer"}` (issued exactly once)
+
+---
+
+## 2. Token & Session Management (`/api/admin/tokens`)
+
+Browser sessions and device tokens share one table — the admin UI's "Sitzungen & Geräte" panel is this list with terminate buttons.
+
+### `GET /api/admin/tokens`
+- **Res**: `{"status": "success", "tokens": [{"id": 1, "kind": "session"|"device", "name": "browser"|"device-flow", "user_agent": "...", "ip": "...", "created_at": "...", "last_used_at": "...", "expires_at": "..."|null, "revoked_at": null, "current": bool}]}` — `current` marks the credential used for this very request; hashes are never exposed.
+
+### `DELETE /api/admin/tokens/:id`
+- **Res**: `{"status": "success", "message": "Token revoked."}` (revocation is effective immediately; revoking `current` logs the caller out)
+
+---
+
+## 3. Login & Status
 
 ### `POST /api/admin/login`
-- **Req**: JSON `{"password": "<password>"}`
-- **Res**: `{"status": "success", "message": "Login successful.", "token": "<admin_token>"}`
+- **Req**: JSON `{"password": "<password>"}` (rate-limited: 5/min per IP; no query-parameter form)
+- **Res**: `{"status": "success", "message": "Login successful.", "expires_at": "RFC3339"}` — the credential is delivered as an `HttpOnly; Secure; SameSite=Strict` `leben_session` cookie, NOT in the body (JavaScript can never read it). Sessions expire after `session_ttl_hours` (default 12).
+
+### `POST /api/admin/logout`
+- **Auth**: none required (revokes only the caller's own credential — works with an already-expired session)
+- **Res**: `{"status": "success", "message": "Logged out."}` — revokes the session/bearer credential presented and clears the cookie.
+
+### `GET /api/healthz`
+- **Auth**: none. **Res**: `{"status": "ok", "db": "ok", "time": "..."}`; HTTP 503 when the database is unreachable.
 
 ---
 
-## 2. Tile Management & Vector Operations (`/api/admin/tiles`)
+## 4. Tile Management & Vector Operations
 
 ### `GET /api/admin/tiles`
-- **Req**: Headers with admin token
 - **Res**: `{"status": "success", "tiles": [...]}`
 - Returns full list of all tiles in database including secret and invisible tiles.
 
 ### `POST /api/admin/tiles` or `PUT /api/admin/tiles`
 - **Req**: JSON object (`Content-Type: application/json`):
-  - `id` (int, optional for update)
+  - `id` (int, optional for update; `id>0` updates, otherwise inserts)
   - `name` (str, required)
-  - `language` ("de"|"en")
+  - `language` (str, e.g. "de"|"en"; one card per (name, language))
   - `title` (str, required)
   - `summary` (str)
   - `html_teaser` (str)
@@ -44,99 +103,120 @@ Authentication headers accepted on protected requests:
   - `background` (str)
   - `visible` (bool)
   - `sort_order` (int)
-- **Res**: `{"status": "success", "message": "Tile saved successfully.", "tile": object}`
+- **Res**: `{"status": "success", "message": "Tile saved successfully.", "tile": object}` (embedding regenerated via Ollama)
 
 ### `DELETE /api/admin/tile/:id` (or `/api/admin/tiles/:id`)
-- **Req**: Tile ID path parameter
+- **Req**: numeric tile ID path parameter
 - **Res**: `{"status": "success", "message": "Tile deleted."}`
 
 ### `POST /api/admin/tile/:id/toggle-visibility`
-- **Req**: Tile ID path parameter
 - **Res**: `{"status": "success", "message": "Tile visibility toggled."}`
 
 ### `POST /api/admin/tile/:id/clone`
-- **Req**: Tile ID path parameter
-- **Res**: `{"status": "success", "message": "Tile cloned successfully.", "clone_name": string}`
+- **Res**: `{"status": "success", "message": "Tile cloned successfully.", "clone_name": string}` (cloned to `<name>-copy`)
 
-### `POST /api/admin/tile/:name/translate` (or `/api/admin/tile/:id/translate`)
+### `POST /api/admin/tile/:id/translate` (the path parameter accepts the tile name; `:name/translate` works identically)
 - **Req**: JSON `{"name": string, "target_lang": string}` or query parameter `target_lang` ("de"|"en"|"all", default "all")
-- **Res**: `{"status": "success", "message": "Translation task started for card '...'", "task": {"id": string, "type": string, "status": string, ...}}`
-- Triggers asynchronous translation task in the background.
+- **Res**: `{"status": "success", "message": "Translation task started for card '...'", "task": {"id": string, "tile_name": string, "target_lang": string, "status": "pending"|"running"|"completed"|"failed"|"cancelled", "progress": string, "error": string, "started_at": string, "completed_at": string|null, "result": any}}`
+- Triggers an asynchronous translation task in the background (DeepL first, LLM fallback). HTTP 409 if a task for this tile is already running.
 
 ### `POST /api/admin/tiles/refresh-vectors`
 - **Res**: `{"status": "success", "message": "Vectors refreshed successfully for N tiles."}`
 
+### `GET /api/admin/translation-status?name=`
+- **Req**: optional `name` filter
+- **Res** (without `name`): `{"status": "success", "data": {"<tile_name>": {"name", "source_language", "effective_source_mtime", "has_stale_translation", "languages": {"<lang>": {"id", "language", "is_source", "status": "source"|"up_to_date"|"stale", "created_at", "updated_at", "content_file", "file_mtime"}}, "missing_languages": [...]}}}`
+- **Res** (with `name`): `{"status": "success", "data": <single matrix entry>}`
+
 ---
 
-## 3. Background Task Management (`/api/admin/tasks`)
+## 5. Background Task Management (`/api/admin/tasks`)
+
+Task objects always have this shape: `{"id": string (uuid), "tile_name": string, "target_lang": string, "status": "pending"|"running"|"completed"|"failed"|"cancelled", "progress": string, "error": string, "started_at": string, "completed_at": string|null, "result": any}`. Task state is in-memory and resets on server restart.
 
 ### `GET /api/admin/tasks`
-- **Res**: `{"status": "success", "tasks": [{"id": string, "type": string, "target": string, "status": string, "error": string, "created_at": string, "updated_at": string}]}`
+- **Res**: `{"status": "success", "tasks": [<task>...]}`
+
+### `GET /api/admin/tasks/:id`
+- **Res**: `{"status": "success", "task": <task>}`; HTTP 404 for unknown IDs.
 
 ### `POST /api/admin/tasks/:id/cancel`
-- **Req**: Task ID path parameter
-- **Res**: `{"status": "success", "message": "Task '<id>' cancelled successfully."}`
+- **Res**: `{"status": "success", "message": "Task '<id>' cancelled successfully."}`; HTTP 400 if the task is not running.
 
 ---
 
-## 4. Content & LLM Helper APIs (`/api/admin/content`)
+## 6. Content & LLM Helper APIs (`/api/admin/content`)
+
+Article bodies live as HTML files under `/content/` and are referenced by a tile's `content_file` field. Content writes use optimistic locking via `mtime`.
 
 ### `GET /api/admin/content/:file`
 - **Req**: Filename path parameter (e.g. `finance_de.html`)
-- **Res**: `{"status": "success", "content": string, "mtime": int64}`
+- **Res**: `{"status": "success", "content": string, "mtime": int64}` — a nonexistent file returns HTTP 200 with `{"content": "", "mtime": 0}` (not 404).
 
 ### `POST /api/admin/content/:file`
 - **Req**: JSON `{"content": string, "expected_mtime": int64}`
 - **Res**: `{"status": "success", "message": "File saved successfully.", "mtime": int64}`
+- **Conflict**: if the file changed since `expected_mtime` → HTTP 409 `{"status":"error", "message":"Conflict: ...", "actual_mtime": int64}` — re-read the file and retry.
 
 ### `POST /api/admin/content-suggest-meta`
 - **Req**: JSON `{"name": string, "title": string, "content_file": string, "html_teaser": string}`
-- **Res**: `{"status": "success", "data": {"summary": string, "tags": string}}`
+- **Res**: `{"status": "success", "data": {"summary": string, "tags": ["tag1", "tag2"]}}` — LLM-generated; `tags` is a JSON array.
 
 ### `POST /api/admin/content-edit-html`
 - **Req**: JSON `{"prompt": string instruction, "html_teaser": string}`
 - **Res**: `{"status": "success", "html_teaser": string}`
 
+### `GET /api/admin/config`
+- **Res**: `{"status": "success", "config": <parsed config.json object>}`; HTTP 404 if the file does not exist.
+
+### `POST /api/admin/config`
+- **Req**: JSON `{"config_json": "<json string>"}` — written verbatim to `frontend/config.json` (must be valid JSON).
+- **Res**: `{"status": "success", "message": "Configuration saved successfully."}`
+
 ---
 
-## 5. Image & Asset Operations (`/api/admin/images`, `/api/admin/assets`)
+## 7. Image & Asset Operations (`/api/admin/images`, `/api/admin/assets`)
 
 ### `GET /api/admin/images`
 - **Res**: `{"status": "success", "images": [{"name": string, "url": string, "size": int64, "mtime": int64}], "files": [...]}`
 
 ### `POST /api/admin/images/upload`
-- **Req**: `multipart/form-data` with `image` or `file`
-- **Res**: `{"status": "success", "message": "File uploaded successfully.", "name": string, "image": {"name": string, "url": string}}`
+- **Req**: `multipart/form-data` with field `image` or `file`
+- **Res**: `{"status": "success", "message": "File uploaded successfully.", "name": string, "image": {"name", "url"}, "file": {"name", "url"}}`
+- Files ≤50 KB (WebP ≤100 KB) are kept as-is; larger images are converted to WebP (quality 40, resized to max 640 px) via ImageMagick/cwebp.
 
 ### `POST /api/admin/images/rename`
 - **Req**: JSON `{"old_name": string, "new_name": string}`
-- **Res**: `{"status": "success", "message": "File renamed successfully."}`
+- **Res**: `{"status": "success", "message": "File renamed."}`
 
 ### `DELETE /api/admin/images/:name`
-- **Req**: Image filename path parameter
 - **Res**: `{"status": "success", "message": "File deleted."}`
 
 ### `GET /api/admin/assets`
-- **Res**: `{"status": "success", "files": [{"name": string, "size": int64, "mtime": int64}]}`
+- **Res**: `{"status": "success", "files": [{"name": string, "size": int64, "mtime": int64}], "assets": [...]}`
 
 ### `POST /api/admin/assets/upload`
-- **Req**: `multipart/form-data` with `file`
-- **Res**: `{"status": "success", "message": "File uploaded successfully.", "name": string}`
+- **Req**: `multipart/form-data` with field `file` (no image conversion)
+- **Res**: `{"status": "success", "message": "File uploaded successfully.", "name": string, "image": {...}, "file": {...}}`
 
 ### `POST /api/admin/assets/rename`
 - **Req**: JSON `{"old_name": string, "new_name": string}`
-- **Res**: `{"status": "success", "message": "File renamed successfully."}`
+- **Res**: `{"status": "success", "message": "File renamed."}`
 
 ### `DELETE /api/admin/assets/:name`
-- **Req**: Asset filename path parameter
 - **Res**: `{"status": "success", "message": "File deleted."}`
 
 ---
 
-## 6. Model Context Protocol (MCP Server Endpoint `/mcp`)
+## 8. Model Context Protocol (MCP Server Endpoint `/api/mcp`)
 
-### `GET /mcp`
-- Standard MCP SSE (Server-Sent Events) endpoint or JSON-RPC message endpoint.
+**Authentication required** (same headers as above) — the endpoint exposes write-capable tools and is therefore not public. The endpoint lives under `/api/` so the standard `/api/*` reverse-proxying reaches it in production.
 
-### `POST /mcp`
-- HTTP JSON-RPC 2.0 endpoint for MCP client tool execution (`search_tiles`, `get_similar_tiles`, `get_tile`, `translate_tile`, `get_task_status`, `cancel_task`, `save_content_file`).
+### `GET /api/mcp?action=sse` (or `Accept: text/event-stream`)
+- MCP Server-Sent Events stream; emits an `endpoint` event with the message URL (`/api/mcp?action=message&sessionId=...`) and keepalives every 15s.
+
+### `POST /api/mcp` and `POST /api/mcp?action=message&sessionId=...`
+- HTTP JSON-RPC 2.0 endpoint. Methods: `initialize` (protocol `2024-11-05`, server `leben-mcp` v1.0.0), `tools/list`, `tools/call`.
+- Tools: `search_tiles`, `get_similar_tiles`, `get_tile`, `translate_tile`, `get_task_status`, `cancel_task`, `save_content_file`.
+
+**Tip**: for MCP clients, prefer the standalone MCP server (stdio) in the `mcp-server/` directory — it speaks this REST API directly, implements the device flow (`authenticate` tool), and stores the token in the OS keychain.

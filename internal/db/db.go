@@ -82,6 +82,46 @@ func (db *DB) Migrate() error {
 	// Ensure secret column exists if upgrading from older schema
 	_, _ = db.Exec("ALTER TABLE tiles ADD COLUMN IF NOT EXISTS secret VARCHAR(255) NOT NULL DEFAULT '';")
 
+	log.Println("Ensuring 'api_tokens' table...")
+	query = `
+		CREATE TABLE IF NOT EXISTS api_tokens (
+			id SERIAL PRIMARY KEY,
+			name VARCHAR(100) NOT NULL,
+			token_hash VARCHAR(64) NOT NULL UNIQUE,
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			last_used_at TIMESTAMP,
+			expires_at TIMESTAMP,
+			revoked_at TIMESTAMP
+		);
+	`
+	if _, err := db.Exec(query); err != nil {
+		return fmt.Errorf("failed to create api_tokens table: %w", err)
+	}
+
+	// Ensure credential metadata columns for session/device management
+	_, _ = db.Exec("ALTER TABLE api_tokens ADD COLUMN IF NOT EXISTS kind VARCHAR(20) NOT NULL DEFAULT 'device';")
+	_, _ = db.Exec("ALTER TABLE api_tokens ADD COLUMN IF NOT EXISTS user_agent VARCHAR(255) NOT NULL DEFAULT '';")
+	_, _ = db.Exec("ALTER TABLE api_tokens ADD COLUMN IF NOT EXISTS ip VARCHAR(64) NOT NULL DEFAULT '';")
+
+	log.Println("Ensuring 'device_grants' table...")
+	query = `
+		CREATE TABLE IF NOT EXISTS device_grants (
+			id SERIAL PRIMARY KEY,
+			device_code_hash VARCHAR(64) NOT NULL UNIQUE,
+			user_code VARCHAR(9) NOT NULL,
+			status VARCHAR(20) NOT NULL DEFAULT 'pending',
+			token_id INT REFERENCES api_tokens(id),
+			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			expires_at TIMESTAMP NOT NULL
+		);
+	`
+	if _, err := db.Exec(query); err != nil {
+		return fmt.Errorf("failed to create device_grants table: %w", err)
+	}
+	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS device_grants_user_code_idx ON device_grants (user_code, status);"); err != nil {
+		log.Printf("Warning: device_grants index creation issue (non-fatal): %v", err)
+	}
+
 	log.Println("Ensuring HNSW vector index...")
 	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS tiles_embedding_hnsw_idx ON tiles USING hnsw (embedding vector_cosine_ops);"); err != nil {
 		log.Printf("Warning: HNSW index creation issue (non-fatal): %v", err)

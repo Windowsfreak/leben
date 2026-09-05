@@ -37,7 +37,7 @@ func main() {
 	}
 	log.Println("Database connection established & schema verified.")
 
-	authModule := auth.New(cfg)
+	authModule := auth.New(cfg, database)
 	taskMgr := tasks.NewManager()
 	ollamaSvc := services.NewOllamaService(cfg)
 	llmSvc := services.NewLLMService(cfg)
@@ -45,7 +45,7 @@ func main() {
 	transSvc := services.NewTranslationService(cfg, database, tileSvc, llmSvc, ollamaSvc, taskMgr)
 	mcpServer := mcp.NewServer(cfg, tileSvc, transSvc, taskMgr)
 
-	r := router.New(cfg, authModule, tileSvc, transSvc, llmSvc, taskMgr, mcpServer)
+	r := router.New(cfg, authModule, database, tileSvc, transSvc, llmSvc, taskMgr, mcpServer)
 
 	var listener net.Listener
 

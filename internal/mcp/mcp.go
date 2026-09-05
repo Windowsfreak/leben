@@ -18,11 +18,11 @@ import (
 )
 
 type Server struct {
-	cfg       *config.Config
-	tileSvc   *services.TileService
-	transSvc  *services.TranslationService
-	taskMgr   *tasks.Manager
-	sessions  sync.Map // sid -> chan string
+	cfg      *config.Config
+	tileSvc  *services.TileService
+	transSvc *services.TranslationService
+	taskMgr  *tasks.Manager
+	sessions sync.Map // sid -> chan string
 }
 
 func NewServer(

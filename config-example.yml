@@ -3,6 +3,7 @@ server:
   host: "0.0.0.0"
   socket: "" # Optional Unix socket path (e.g. "/var/run/leben.sock")
   web_dir: "./frontend"
+  public_url: "" # Optional externally visible base URL (e.g. "https://leben.8bj.de") used for device-flow verification links; derived from request headers when empty
 
 database:
   host: "127.0.0.1"
@@ -31,5 +32,8 @@ deepl:
 admin:
   # Default password hash for 'admin123'
   password_hash: "$2y$10$.8UcGLDKeZDoCLVZjNSac.7vwrMVwj1QLZLhQOLDSH5Ywo14QRhp2"
-  # Master admin secret token for API Authorization header
-  secret_token: "leben_admin_secret_token_change_me"
+  # Browser login sessions expire after this many hours (default 12)
+  session_ttl_hours: 12
+  # Tools (MCP server, scripts) authenticate via device-flow API tokens
+  # (POST /api/auth/device, approve at /device.html) — revocable in the admin
+  # UI ("Sitzungen") or via DELETE /api/admin/tokens/:id.

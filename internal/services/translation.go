@@ -16,13 +16,13 @@ import (
 )
 
 type TranslationService struct {
-	cfg        *config.Config
-	database   *db.DB
-	tileSvc    *TileService
-	llmSvc     *LLMService
-	ollamaSvc  *OllamaService
-	deepLSvc   *DeepLService
-	taskMgr    *tasks.Manager
+	cfg       *config.Config
+	database  *db.DB
+	tileSvc   *TileService
+	llmSvc    *LLMService
+	ollamaSvc *OllamaService
+	deepLSvc  *DeepLService
+	taskMgr   *tasks.Manager
 }
 
 func NewTranslationService(

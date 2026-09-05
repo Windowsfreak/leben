@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Leben — Device Authorization</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --card: #181b24;
+    --border: #2a2e3d;
+    --text: #e8eaf0;
+    --muted: #9aa0b4;
+    --accent: #fbbf24;
+    --danger: #ef4444;
+    --ok: #22c55e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 32px;
+    width: 100%;
+    max-width: 420px;
+  }
+  h1 { font-size: 20px; margin-bottom: 6px; }
+  p.hint { color: var(--muted); font-size: 14px; line-height: 1.5; margin-bottom: 22px; }
+  label { display: block; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 14px 0 6px; }
+  input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 16px;
+    padding: 12px 14px;
+    outline: none;
+  }
+  input:focus { border-color: var(--accent); }
+  input.usercode { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 0.2em; text-transform: uppercase; }
+  .actions { display: flex; gap: 10px; margin-top: 24px; }
+  button {
+    flex: 1;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 0;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .approve { background: var(--accent); color: #111; }
+  .deny { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+  .message { margin-top: 18px; font-size: 14px; line-height: 1.5; display: none; padding: 10px 12px; border-radius: 8px; }
+  .message.ok { display: block; background: rgba(34,197,94,0.12); color: var(--ok); }
+  .message.err { display: block; background: rgba(239,68,68,0.12); color: var(--danger); }
+  .footnote { margin-top: 20px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<main class="card">
+  <h1>Device authorization</h1>
+  <p class="hint">A device (for example an MCP client) is requesting access to your Leben admin API.
+     Enter the code it displayed, confirm with your admin password, and decide below.</p>
+
+  <form id="form" autocomplete="off">
+    <label for="user_code">Device code</label>
+    <input class="usercode" id="user_code" name="user_code" placeholder="XXXX-XXXX"
+           maxlength="9" required autofocus>
+
+    <label for="password">Admin password</label>
+    <input type="password" id="password" name="password" required>
+
+    <div class="actions">
+      <button type="submit" class="approve" id="approveBtn">Approve</button>
+      <button type="button" class="deny" id="denyBtn">Deny</button>
+    </div>
+  </form>
+
+  <div class="message" id="message" role="status"></div>
+
+  <p class="footnote">Your password is sent only to the Leben server over HTTPS — the requesting
+     device never sees it and only receives a revocable access token. Codes expire after 10 minutes.</p>
+</main>
+
+<script>
+(function () {
+  var form = document.getElementById('form');
+  var codeInput = document.getElementById('user_code');
+  var passwordInput = document.getElementById('password');
+  var approveBtn = document.getElementById('approveBtn');
+  var denyBtn = document.getElementById('denyBtn');
+  var message = document.getElementById('message');
+
+  // Prefill from verification_uri_complete (?code=XXXX-XXXX)
+  var params = new URLSearchParams(window.location.search);
+  var prefill = (params.get('code') || '').toUpperCase().trim();
+  if (prefill) {
+    codeInput.value = prefill;
+    passwordInput.focus();
+  }
+
+  function show(kind, text) {
+    message.className = 'message ' + kind;
+    message.textContent = text;
+  }
+
+  function submit(approve) {
+    var userCode = codeInput.value.trim().toUpperCase();
+    var password = passwordInput.value;
+    if (!userCode || !password) {
+      show('err', 'Please enter both the device code and your password.');
+      return;
+    }
+    approveBtn.disabled = true;
+    denyBtn.disabled = true;
+
+    fetch('/api/auth/device/authorize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_code: userCode, password: password, approve: approve })
+    })
+      .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+      .then(function (res) {
+        if (res.ok && res.data.status === 'success') {
+          show('ok', res.data.message || 'Done.');
+          form.reset();
+        } else {
+          show('err', (res.data && res.data.message) || 'Request failed.');
+          approveBtn.disabled = false;
+          denyBtn.disabled = false;
+        }
+      })
+      .catch(function () {
+        show('err', 'Network error — is the server reachable?');
+        approveBtn.disabled = false;
+        denyBtn.disabled = false;
+      });
+  }
+
+  form.addEventListener('submit', function (e) { e.preventDefault(); submit(true); });
+  denyBtn.addEventListener('click', function () { submit(false); });
+})();
+</script>
+</body>
+</html>

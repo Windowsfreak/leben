@@ -13,10 +13,12 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/julienschmidt/httprouter"
 	"github.com/windowsfreak/leben/internal/auth"
 	"github.com/windowsfreak/leben/internal/config"
+	"github.com/windowsfreak/leben/internal/db"
 	"github.com/windowsfreak/leben/internal/mcp"
 	"github.com/windowsfreak/leben/internal/models"
 	"github.com/windowsfreak/leben/internal/services"
@@ -27,6 +29,7 @@ import (
 type Router struct {
 	cfg       *config.Config
 	auth      *auth.Auth
+	db        *db.DB
 	tileSvc   *services.TileService
 	transSvc  *services.TranslationService
 	llmSvc    *services.LLMService
@@ -38,6 +41,7 @@ type Router struct {
 func New(
 	cfg *config.Config,
 	auth *auth.Auth,
+	database *db.DB,
 	tileSvc *services.TileService,
 	transSvc *services.TranslationService,
 	llmSvc *services.LLMService,
@@ -47,6 +51,7 @@ func New(
 	r := &Router{
 		cfg:       cfg,
 		auth:      auth,
+		db:        database,
 		tileSvc:   tileSvc,
 		transSvc:  transSvc,
 		llmSvc:    llmSvc,
@@ -74,17 +79,29 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *Router) setupRoutes() {
+	// Health check (public) — under /api/ so the production proxy routes it
+	r.router.GET("/api/healthz", r.handleHealthz)
+
 	// Public Endpoints
 	r.router.GET("/api/tiles", r.handleGetTiles)
 	r.router.GET("/api/tiles/:name", r.handleGetTileByName)
 	r.router.GET("/api/tiles/:name/versions", r.handleGetTileVersions)
 
-	// MCP Endpoints
-	r.router.GET("/mcp", r.handleMCPGet)
-	r.router.POST("/mcp", r.handleMCPPost)
+	// Device authorization flow (RFC 8628) — passwordless token issuance
+	r.router.POST("/api/auth/device", r.handleDeviceStart)
+	r.router.POST("/api/auth/device/token", r.handleDeviceToken)
+	r.router.POST("/api/auth/device/authorize", r.handleDeviceAuthorize)
 
-	// Admin Public Login
+	// MCP Endpoints (auth-protected: exposes write-capable tools).
+	// Lives under /api/ so the production proxy (which routes /api/*) reaches it.
+	r.router.GET("/api/mcp", r.wrapAuth(r.handleMCPGet))
+	r.router.POST("/api/mcp", r.wrapAuth(r.handleMCPPost))
+
+	// Browser login (issues an HttpOnly session cookie) & logout. Logout is
+	// intentionally unwrapped: it only revokes the credential the caller
+	// presented and clears the cookie — also works with an expired session.
 	r.router.POST("/api/admin/login", r.handleAdminLogin)
+	r.router.POST("/api/admin/logout", r.handleAdminLogout)
 
 	// Admin Protected Endpoints
 	r.router.GET("/api/admin/tiles", r.wrapAuth(r.handleAdminGetAllTiles))
@@ -98,11 +115,16 @@ func (r *Router) setupRoutes() {
 	r.router.POST("/api/admin/tile/:id/clone", r.wrapAuth(r.handleAdminCloneTile))
 	r.router.POST("/api/admin/tile/:id/translate", r.wrapAuth(r.handleAdminTranslateTile))
 	r.router.GET("/api/admin/translation-status", r.wrapAuth(r.handleAdminGetTranslationStatus))
+	r.router.GET("/api/admin/config", r.wrapAuth(r.handleAdminGetConfig))
 	r.router.POST("/api/admin/config", r.wrapAuth(r.handleAdminSaveConfig))
 
 	r.router.GET("/api/admin/tasks", r.wrapAuth(r.handleAdminGetTasks))
 	r.router.GET("/api/admin/tasks/:id", r.wrapAuth(r.handleAdminGetTaskByID))
 	r.router.POST("/api/admin/tasks/:id/cancel", r.wrapAuth(r.handleAdminCancelTask))
+
+	// API token management (device-flow issued tokens)
+	r.router.GET("/api/admin/tokens", r.wrapAuth(r.handleAdminListTokens))
+	r.router.DELETE("/api/admin/tokens/:id", r.wrapAuth(r.handleAdminRevokeToken))
 
 	r.router.GET("/api/admin/content/:file", r.wrapAuth(r.handleAdminGetContentFile))
 	r.router.POST("/api/admin/content/:file", r.wrapAuth(r.handleAdminSaveContentFile))
@@ -321,7 +343,7 @@ func (r *Router) handleGetTileVersions(w http.ResponseWriter, req *http.Request,
 	})
 }
 
-func (r *Router) handleMCPGet(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+func (r *Router) handleMCPGet(w http.ResponseWriter, req *http.Request) {
 	if req.URL.Query().Get("action") == "sse" || req.Header.Get("Accept") == "text/event-stream" {
 		r.mcpServer.HandleSSE(w, req)
 		return
@@ -329,32 +351,85 @@ func (r *Router) handleMCPGet(w http.ResponseWriter, req *http.Request, _ httpro
 	r.mcpServer.HandleMessage(w, req)
 }
 
-func (r *Router) handleMCPPost(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+func (r *Router) handleMCPPost(w http.ResponseWriter, req *http.Request) {
 	r.mcpServer.HandleMessage(w, req)
 }
 
+// handleAdminLogin verifies the admin password and issues an expiring browser
+// session as an HttpOnly cookie. No credential is returned in the body, so
+// JavaScript (and any XSS) can never read it.
 func (r *Router) handleAdminLogin(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+	if !r.auth.AllowRate("login", clientIP(req), 5, 5) {
+		writeError(w, http.StatusTooManyRequests, "Too many login attempts. Wait a minute and try again.")
+		return
+	}
+
 	var body struct {
 		Password string `json:"password"`
 	}
-	if strings.Contains(req.Header.Get("Content-Type"), "application/json") {
-		_ = json.NewDecoder(req.Body).Decode(&body)
-	}
-	password := body.Password
-	if password == "" {
-		password = req.URL.Query().Get("password")
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil || body.Password == "" {
+		writeError(w, http.StatusBadRequest, "Password required.")
+		return
 	}
 
-	if !r.auth.VerifyPassword(password) {
+	if !r.auth.VerifyPassword(body.Password) {
 		writeError(w, http.StatusUnauthorized, "Invalid admin password.")
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]any{
-		"status":  "success",
-		"message": "Login successful.",
-		"token":   r.cfg.Admin.SecretToken,
+	r.auth.PurgeExpiredSessions()
+	ttl := time.Duration(r.cfg.Admin.SessionTTLHours) * time.Hour
+	if ttl <= 0 {
+		ttl = 12 * time.Hour
+	}
+	token, expiresAt, err := r.auth.CreateSessionToken(req.UserAgent(), clientIP(req), ttl)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     auth.SessionCookieName,
+		Value:    token,
+		Path:     "/",
+		MaxAge:   int(ttl.Seconds()),
+		HttpOnly: true,
+		Secure:   requestIsSecure(req),
+		SameSite: http.SameSiteStrictMode,
 	})
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":     "success",
+		"message":    "Login successful.",
+		"expires_at": expiresAt.UTC().Format(time.RFC3339),
+	})
+}
+
+// handleAdminLogout revokes the presented credential (browser session cookie
+// or Bearer token) and clears the session cookie. Intentionally
+// unauthenticated: it can only ever revoke the caller's own credential, and
+// clearing an expired cookie must not require a valid one.
+func (r *Router) handleAdminLogout(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+	token := auth.ExtractToken(req)
+	if id, ok := r.auth.LookupTokenID(token); ok {
+		_ = r.auth.RevokeAPIToken(id)
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     auth.SessionCookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		Secure:   requestIsSecure(req),
+		SameSite: http.SameSiteStrictMode,
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "success", "message": "Logged out."})
+}
+
+// requestIsSecure reports whether the request arrived over HTTPS (directly or
+// via the reverse proxy), deciding the cookie's Secure flag.
+func requestIsSecure(req *http.Request) bool {
+	return req.TLS != nil || strings.EqualFold(req.Header.Get("X-Forwarded-Proto"), "https")
 }
 
 func (r *Router) handleAdminGetAllTiles(w http.ResponseWriter, req *http.Request) {
@@ -1104,4 +1179,3 @@ func (r *Router) handleAdminCloneTile(w http.ResponseWriter, req *http.Request) 
 		"clone_name": clone.Name,
 	})
 }
-

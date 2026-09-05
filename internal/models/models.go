@@ -79,6 +79,23 @@ type TranslationTask struct {
 	Result      any        `json:"result,omitempty"`
 }
 
+type ApiToken struct {
+	ID         int        `json:"id"`
+	Kind       string     `json:"kind"` // "session" (browser cookie) or "device" (bearer token)
+	Name       string     `json:"name"`
+	UserAgent  string     `json:"user_agent"`
+	IP         string     `json:"ip"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastUsedAt *time.Time `json:"last_used_at"`
+	ExpiresAt  *time.Time `json:"expires_at"`
+	RevokedAt  *time.Time `json:"revoked_at"`
+}
+
+type ApiTokenView struct {
+	ApiToken
+	Current bool `json:"current"`
+}
+
 type MCPTool struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`

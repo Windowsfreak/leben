@@ -6,48 +6,55 @@ import (
 	"strings"
 
 	"github.com/windowsfreak/leben/internal/config"
+	"github.com/windowsfreak/leben/internal/db"
 	"golang.org/x/crypto/bcrypt"
 )
 
+// SessionCookieName is the HttpOnly cookie carrying the browser session token.
+const SessionCookieName = "leben_session"
+
 type Auth struct {
-	cfg *config.Config
+	cfg     *config.Config
+	db      *db.DB
+	limiter *RateLimiter
+
+	// testToken is a credential wired in by unit tests so handlers can be
+	// exercised without a database. Empty in production.
+	testToken string
 }
 
-func New(cfg *config.Config) *Auth {
-	return &Auth{cfg: cfg}
+func New(cfg *config.Config, database *db.DB) *Auth {
+	return &Auth{cfg: cfg, db: database, limiter: NewRateLimiter()}
 }
 
-// VerifyPassword checks if input password matches configured bcrypt hash or master secret token
+// SetTestToken installs a credential accepted by VerifyToken; tests only.
+func (a *Auth) SetTestToken(token string) { a.testToken = token }
+
+// VerifyPassword checks the admin password against the configured bcrypt hash.
+// Used only by the browser login and the device-flow approval page.
 func (a *Auth) VerifyPassword(password string) bool {
-	if password == "" {
+	if password == "" || a.cfg.Admin.PasswordHash == "" {
 		return false
 	}
-	// Check against secret token directly
-	if a.cfg.Admin.SecretToken != "" && subtle.ConstantTimeCompare([]byte(password), []byte(a.cfg.Admin.SecretToken)) == 1 {
-		return true
-	}
-	// Check against bcrypt hash
-	if a.cfg.Admin.PasswordHash != "" {
-		hash := strings.Replace(a.cfg.Admin.PasswordHash, "$2y$", "$2a$", 1)
-		err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
-		return err == nil
-	}
-	return false
+	hash := strings.Replace(a.cfg.Admin.PasswordHash, "$2y$", "$2a$", 1)
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }
 
-// VerifyToken checks Bearer token or custom admin header
+// VerifyToken validates a credential extracted from a request: a Bearer/API
+// token (device flow) or a browser session token from the HttpOnly cookie.
+// Passwords and static secret tokens are deliberately NOT accepted here.
 func (a *Auth) VerifyToken(token string) bool {
 	if token == "" {
 		return false
 	}
-	if a.cfg.Admin.SecretToken != "" && subtle.ConstantTimeCompare([]byte(token), []byte(a.cfg.Admin.SecretToken)) == 1 {
+	if a.testToken != "" && subtle.ConstantTimeCompare([]byte(token), []byte(a.testToken)) == 1 {
 		return true
 	}
-	// Also accept correct password as token
-	return a.VerifyPassword(token)
+	return a.VerifyAPIToken(token)
 }
 
-// ExtractToken fetches token from Bearer header, X-Admin-Token header, or Authorization header
+// ExtractToken fetches the credential from the Authorization header
+// (Bearer), the X-Admin-Token header, or the session cookie.
 func ExtractToken(r *http.Request) string {
 	if authHeader := r.Header.Get("Authorization"); authHeader != "" {
 		if len(authHeader) > 7 && authHeader[:7] == "Bearer " {
@@ -58,8 +65,8 @@ func ExtractToken(r *http.Request) string {
 	if token := r.Header.Get("X-Admin-Token"); token != "" {
 		return token
 	}
-	if token := r.Header.Get("X-Admin-Password"); token != "" {
-		return token
+	if cookie, err := r.Cookie(SessionCookieName); err == nil && cookie.Value != "" {
+		return cookie.Value
 	}
 	return ""
 }
@@ -80,6 +87,11 @@ func (a *Auth) Middleware(next http.HandlerFunc) http.HandlerFunc {
 
 // IsAdmin checks request authorization without writing response
 func (a *Auth) IsAdmin(r *http.Request) bool {
-	token := ExtractToken(r)
-	return a.VerifyToken(token)
+	return a.VerifyToken(ExtractToken(r))
+}
+
+// AllowRate reports whether one event of the given scope for key (usually a
+// client IP) is allowed. Limits are per minute with a burst allowance.
+func (a *Auth) AllowRate(scope, key string, perMinute, burst int) bool {
+	return a.limiter.Allow(scope+":"+key, perMinute, burst)
 }

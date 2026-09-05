@@ -17,15 +17,6 @@ window.isEditing = false;
 window.isSettingsEditing = false;
 window.monacoLoaded = false;
 
-function getAdminHeaders() {
-    const token = localStorage.getItem('leben_admin_token');
-    const headers = {};
-    if (token) {
-        headers['Authorization'] = 'Bearer ' + token;
-    }
-    return headers;
-}
-
 // Perform login request
 function login(password) {
     fetch('/api/admin/login', {
@@ -41,13 +32,19 @@ function login(password) {
         })
         .then(res => {
             if (res.status === 'success') {
-                if (res.token) {
-                    localStorage.setItem('leben_admin_token', res.token);
-                }
+                const wasReauth = reauthPending;
+                reauthPending = false;
+                const hint = document.getElementById('loginHint');
+                if (hint) hint.style.display = 'none';
+
                 setAdminMode(true);
                 document.getElementById('loginDialog').close();
                 document.getElementById('adminPassword').value = '';
-                resetAndLoad(); // Reload list to include invisible tiles
+                if (!wasReauth) {
+                    resetAndLoad(); // Fresh login: reload list to include invisible tiles
+                }
+                // Step-up re-auth: keep everything as-is so open editors
+                // continue exactly where the session left off.
             }
         })
         .catch(err => {
@@ -56,9 +53,9 @@ function login(password) {
         });
 }
 
-// Perform logout request
+// Perform logout request (revokes the server-side session and clears the cookie)
 function logout() {
-    localStorage.removeItem('leben_admin_token');
+    fetch('/api/admin/logout', { method: 'POST' }).catch(() => {});
     setAdminMode(false);
     resetAndLoad(); // Reload list to hide invisible tiles
 }
@@ -78,6 +75,41 @@ function setAdminMode(active) {
             adminBar.classList.remove('active');
         }
     }
+}
+
+// Authentication now rides on an HttpOnly session cookie the server sets on
+// login — JavaScript never sees the credential, so there is nothing to store
+// (or steal) in localStorage.
+
+// True while we are re-authenticating an expired session (step-up). In that
+// case login() must NOT reload the tile grid — open editors keep their state.
+let reauthPending = false;
+
+// Global 401 watchdog: if any admin call meets an invalid or expired session,
+// show the login prompt on top of whatever is open (editor included). Admin
+// mode stays on so no dialog state — and no unsaved edits — is touched.
+(function installAuthWatchdog() {
+    const originalFetch = window.fetch;
+    window.fetch = function (...args) {
+        const url = typeof args[0] === 'string' ? args[0] : (args[0] && args[0].url) || '';
+        return originalFetch.apply(this, args).then(res => {
+            if (res.status === 401 && isAdmin && url.startsWith('/api/admin') && !url.startsWith('/api/admin/login') && !url.startsWith('/api/admin/logout')) {
+                forceLogout();
+            }
+            return res;
+        });
+    };
+})();
+
+function forceLogout(message) {
+    reauthPending = true;
+    const hint = document.getElementById('loginHint');
+    if (hint) {
+        hint.textContent = message || 'Sitzung abgelaufen — bitte erneut anmelden. Offene Editoren bleiben unverändert.';
+        hint.style.display = 'block';
+    }
+    const dialog = document.getElementById('loginDialog');
+    if (dialog && !dialog.open) dialog.showModal();
 }
 
 // Open Editor Modal (creates a new tile if no tile parameters passed)
@@ -536,8 +568,7 @@ function saveTile(syncSiblings = false) {
     fetch('/api/admin/tiles', {
         method: 'POST',
         headers: {
-            'Content-Type': 'application/json',
-            ...(typeof getAdminHeaders === 'function' ? getAdminHeaders() : {})
+            'Content-Type': 'application/json'
         },
         body: JSON.stringify(payload)
     })
@@ -609,7 +640,6 @@ function deleteTile(id, title) {
     
     fetch(`/api/admin/tiles/${id}`, {
         method: 'DELETE',
-        headers: typeof getAdminHeaders === 'function' ? getAdminHeaders() : {}
     })
         .then(res => res.json())
         .then(res => {
@@ -761,6 +791,19 @@ function initAdmin() {
 
     const refreshTasksBtn = document.getElementById('refreshTasksBtn');
     if (refreshTasksBtn) refreshTasksBtn.addEventListener('click', loadTasksList);
+
+    // Sessions & Devices Button
+    const sessionsBtn = document.getElementById('sessionsBtn');
+    if (sessionsBtn) sessionsBtn.addEventListener('click', openSessionsDialog);
+
+    const closeSessionsBtn = document.getElementById('closeSessionsBtn');
+    if (closeSessionsBtn) closeSessionsBtn.addEventListener('click', () => document.getElementById('sessionsDialog').close());
+
+    const closeSessionsBtn2 = document.getElementById('closeSessionsBtn2');
+    if (closeSessionsBtn2) closeSessionsBtn2.addEventListener('click', () => document.getElementById('sessionsDialog').close());
+
+    const refreshSessionsBtn = document.getElementById('refreshSessionsBtn');
+    if (refreshSessionsBtn) refreshSessionsBtn.addEventListener('click', loadSessionsList);
 
     // Settings Button
     document.getElementById('editSettingsBtn').addEventListener('click', openSettingsEditor);
@@ -974,8 +1017,7 @@ function initAdmin() {
         fetch('/api/admin/content-edit-html', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                ...(typeof getAdminHeaders === 'function' ? getAdminHeaders() : {})
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({
                 prompt: promptText,
@@ -1039,8 +1081,7 @@ function initAdmin() {
         fetch('/api/admin/content-suggest-meta', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json',
-                ...(typeof getAdminHeaders === 'function' ? getAdminHeaders() : {})
+                'Content-Type': 'application/json'
             },
             body: JSON.stringify({
                 name: name,
@@ -1309,7 +1350,6 @@ function openLightboxEditor(tile) {
     let contentPromise;
     if (tile.content_file) {
         contentPromise = fetch(`/api/admin/content/${encodeURIComponent(tile.content_file)}`, {
-            headers: typeof getAdminHeaders === 'function' ? getAdminHeaders() : {}
         })
             .then(res => {
                 if (!res.ok) throw new Error("Network response error loading file");
@@ -1382,8 +1422,7 @@ function saveLightboxEditor() {
     fetch(url, {
         method: 'POST',
         headers: {
-            'Content-Type': 'application/json',
-            ...(typeof getAdminHeaders === 'function' ? getAdminHeaders() : {})
+            'Content-Type': 'application/json'
         },
         body: bodyData
     })
@@ -1465,7 +1504,6 @@ function loadImagePickerFiles() {
     grid.innerHTML = '<div style="grid-column: 1/-1; text-align: center; padding: 2rem;"><i class="fa-solid fa-spinner fa-spin" style="font-size: 2rem; color: var(--accent);"></i></div>';
     
     fetch('/api/admin/images', {
-        headers: typeof getAdminHeaders === 'function' ? getAdminHeaders() : {}
     })
         .then(res => res.json())
         .then(res => {
@@ -1553,7 +1591,6 @@ function handleImageUpload(e) {
     
     fetch('/api/admin/images/upload', {
         method: 'POST',
-        headers: typeof getAdminHeaders === 'function' ? getAdminHeaders() : {},
         body: formData
     })
     .then(res => res.json())
@@ -1598,8 +1635,7 @@ function performRenameImageAction(oldName, newName) {
     fetch('/api/admin/images/rename', {
         method: 'POST',
         headers: {
-            'Content-Type': 'application/json',
-            ...(typeof getAdminHeaders === 'function' ? getAdminHeaders() : {})
+            'Content-Type': 'application/json'
         },
         body: JSON.stringify({
             old_name: oldName,
@@ -1631,7 +1667,6 @@ function deleteImage(filename) {
     
     fetch(`/api/admin/images/${encodeURIComponent(filename)}`, {
         method: 'DELETE',
-        headers: typeof getAdminHeaders === 'function' ? getAdminHeaders() : {}
     })
     .then(res => res.json())
     .then(res => {
@@ -1936,6 +1971,126 @@ function loadTasksList() {
         .catch(err => {
             container.innerHTML = `<div style="color: #f87171; padding: 1rem;">Fehler beim Laden der Aufgaben: ${escapeHtml(err.message)}</div>`;
         });
+}
+
+// -------------------------------------------------------------
+// SESSIONS & DEVICES PANEL
+// -------------------------------------------------------------
+
+function openSessionsDialog() {
+    const dialog = document.getElementById('sessionsDialog');
+    if (!dialog) return;
+
+    loadSessionsList();
+    dialog.showModal();
+}
+
+function formatSessionDate(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' }) +
+        ' ' + d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+}
+
+// Compact "Browser · OS" summary instead of dumping the full user-agent string
+function shortenUserAgent(ua) {
+    if (!ua) return 'Unbekanntes Gerät';
+    const browser = ua.includes('Firefox') ? 'Firefox'
+        : ua.includes('Edg/') ? 'Edge'
+        : ua.includes('OPR/') ? 'Opera'
+        : ua.includes('Chrome') ? 'Chrome'
+        : ua.includes('Safari') ? 'Safari'
+        : ua.split(' ')[0];
+    const os = ua.includes('Windows') ? 'Windows'
+        : ua.includes('Mac OS') || ua.includes('Macintosh') ? 'macOS'
+        : ua.includes('Android') ? 'Android'
+        : ua.includes('iPhone') || ua.includes('iPad') ? 'iOS'
+        : ua.includes('Linux') ? 'Linux'
+        : '';
+    return [browser, os].filter(Boolean).join(' · ') || ua;
+}
+
+function loadSessionsList() {
+    const container = document.getElementById('sessionsListContainer');
+    if (!container) return;
+
+    container.innerHTML = '<div style="text-align:center; padding: 2rem; color: var(--text-secondary);"><i class="fa-solid fa-spinner fa-spin"></i> Lade Sitzungen & Geräte...</div>';
+
+    fetch('/api/admin/tokens', { headers: buildApiHeaders() })
+        .then(res => res.json())
+        .then(res => {
+            if (res.status !== 'success' || !Array.isArray(res.tokens)) {
+                container.innerHTML = '<div style="color: #f87171; padding: 1rem;">Fehler beim Laden der Sitzungen.</div>';
+                return;
+            }
+
+            const now = new Date();
+            const active = res.tokens.filter(t => !t.revoked_at && (!t.expires_at || new Date(t.expires_at) > now));
+            if (active.length === 0) {
+                container.innerHTML = '<div style="text-align:center; padding: 2rem; color: var(--text-secondary);"><i class="fa-solid fa-shield-halved" style="font-size: 2rem; margin-bottom: 0.5rem; display:block; opacity: 0.5;"></i>Keine aktiven Sitzungen oder Geräte vorhanden.</div>';
+                return;
+            }
+
+            container.innerHTML = '';
+            active.forEach(t => {
+                const kindBadge = t.kind === 'session'
+                    ? '<span class="session-kind-badge session-kind-session"><i class="fa-solid fa-window-restore"></i> Browser-Sitzung</span>'
+                    : '<span class="session-kind-badge session-kind-device"><i class="fa-solid fa-key"></i> Gerät / API-Token</span>';
+                const currentBadge = t.current
+                    ? '<span class="session-kind-badge session-kind-current"><i class="fa-solid fa-location-crosshairs"></i> Diese Sitzung</span>'
+                    : '';
+
+                const card = document.createElement('div');
+                card.className = 'task-card';
+                card.innerHTML = `
+                    <div class="task-card-header">
+                        <div class="task-card-name">${kindBadge} ${currentBadge}</div>
+                        <span class="task-toast-status-badge task-status-running"><i class="fa-solid fa-circle-check"></i> Aktiv</span>
+                    </div>
+                    <div class="task-card-meta">
+                        <span><i class="fa-solid fa-globe"></i> ${escapeHtml(t.ip || 'unbekannte IP')}</span>
+                        <span><i class="fa-solid fa-clock"></i> Erstellt: ${formatSessionDate(t.created_at)}</span>
+                        <span><i class="fa-solid fa-hourglass-half"></i> ${t.expires_at ? 'Läuft ab: ' + formatSessionDate(t.expires_at) : 'Läuft nicht ab'}</span>
+                    </div>
+                    <div class="task-card-progress" title="${escapeHtml(t.user_agent || '')}"><i class="fa-solid fa-desktop"></i> ${escapeHtml(shortenUserAgent(t.user_agent))}</div>
+                    <div style="display:flex; justify-content:flex-end; margin-top: 0.25rem;">
+                        <button type="button" class="btn btn-sm" style="background: rgba(239, 68, 68, 0.2); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.4);">Beenden</button>
+                    </div>
+                `;
+
+                const terminateBtn = card.querySelector('button');
+                terminateBtn.addEventListener('click', () => revokeSession(t));
+                container.appendChild(card);
+            });
+        })
+        .catch(err => {
+            container.innerHTML = `<div style="color: #f87171; padding: 1rem;">Fehler beim Laden der Sitzungen: ${escapeHtml(err.message)}</div>`;
+        });
+}
+
+function revokeSession(token) {
+    const isCurrent = !!token.current;
+    const kindText = token.kind === 'session' ? 'Sitzung' : 'Geräte-Zugriff';
+
+    if (isCurrent && !confirm('Das ist deine aktuelle Sitzung. Beim Beenden wirst du sofort abgemeldet. Fortfahren?')) return;
+    if (!isCurrent && !confirm(`${kindText} wirklich beenden? Der Zugriff verliert sofort seine Gültigkeit.`)) return;
+
+    fetch(`/api/admin/tokens/${token.id}`, { method: 'DELETE', headers: buildApiHeaders() })
+        .then(res => res.json())
+        .then(res => {
+            if (res.status === 'success') {
+                if (isCurrent) {
+                    document.getElementById('sessionsDialog').close();
+                    fetch('/api/admin/logout', { method: 'POST' }).catch(() => {});
+                    forceLogout('Sitzung beendet — du wurdest abgemeldet. Offene Editoren bleiben unverändert.');
+                } else {
+                    loadSessionsList();
+                }
+            } else {
+                alert((res && res.message) || 'Beenden fehlgeschlagen.');
+            }
+        })
+        .catch(err => alert('Fehler: ' + err.message));
 }
 
 function checkAndResumeRunningTasks() {

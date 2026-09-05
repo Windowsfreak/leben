@@ -22,9 +22,17 @@ func TestRouterInitialization(t *testing.T) {
 	cfg := &config.Config{
 		Server: config.ServerConfig{WebDir: "."},
 	}
-	r := New(cfg, nil, nil, nil, nil, nil, nil)
+	r := New(cfg, nil, nil, nil, nil, nil, nil, nil)
 	if r == nil {
 		t.Fatal("expected non-nil router")
+	}
+
+	// /api/healthz must respond 503 degraded without panicking when DB is nil
+	req := httptest.NewRequest(http.MethodGet, "/api/healthz", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status 503 for nil DB health check, got %d", rec.Code)
 	}
 }
 
@@ -49,10 +57,11 @@ func TestAdminTileImageEndpoints(t *testing.T) {
 	secretToken := "test_secret_admin_token"
 	cfg := &config.Config{
 		Server: config.ServerConfig{WebDir: tmpDir},
-		Admin:  config.AdminConfig{SecretToken: secretToken},
+		Admin:  config.AdminConfig{},
 	}
-	authModule := auth.New(cfg)
-	r := New(cfg, authModule, nil, nil, nil, nil, nil)
+	authModule := auth.New(cfg, nil)
+	authModule.SetTestToken(secretToken)
+	r := New(cfg, authModule, nil, nil, nil, nil, nil, nil)
 
 	// 1. Test GET /api/admin/images (List)
 	req := httptest.NewRequest(http.MethodGet, "/api/admin/images", nil)

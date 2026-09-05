@@ -34,10 +34,8 @@ function buildApiHeaders() {
     if (ref) {
         headers['X-Reference'] = ref;
     }
-    const adminToken = localStorage.getItem('leben_admin_token');
-    if (adminToken) {
-        headers['Authorization'] = 'Bearer ' + adminToken;
-    }
+    // Admin elevation happens via the HttpOnly session cookie, which the
+    // browser attaches to same-origin requests automatically.
     return headers;
 }
 
@@ -1044,10 +1042,8 @@ function setupEventHandlers() {
 // ADMINISTRATIVE LOADERS
 // -------------------------------------------------------------
 
-// Verify admin session on load
+// Verify admin session on load (the HttpOnly session cookie decides)
 function checkAdminStatus() {
-    const token = localStorage.getItem('leben_admin_token');
-    if (!token) return;
     fetch('/api/admin/tiles', { headers: buildApiHeaders() })
         .then(res => {
             if (res.ok) {

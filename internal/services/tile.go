@@ -16,16 +16,16 @@ import (
 )
 
 type TileService struct {
-	cfg    *config.Config
+	cfg      *config.Config
 	database *db.DB
-	ollama *OllamaService
+	ollama   *OllamaService
 }
 
 func NewTileService(cfg *config.Config, database *db.DB, ollama *OllamaService) *TileService {
 	return &TileService{
-		cfg:    cfg,
+		cfg:      cfg,
 		database: database,
-		ollama: ollama,
+		ollama:   ollama,
 	}
 }
 
@@ -620,4 +620,3 @@ func (s *TileService) RefreshVectors(ctx context.Context) (int, error) {
 	}
 	return count, nil
 }
-

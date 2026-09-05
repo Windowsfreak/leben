@@ -7,10 +7,11 @@ import (
 )
 
 type ServerConfig struct {
-	Port   int    `yaml:"port"`
-	Host   string `yaml:"host"`
-	Socket string `yaml:"socket"`
-	WebDir string `yaml:"web_dir"`
+	Port      int    `yaml:"port"`
+	Host      string `yaml:"host"`
+	Socket    string `yaml:"socket"`
+	WebDir    string `yaml:"web_dir"`
+	PublicURL string `yaml:"public_url"`
 }
 
 type DatabaseConfig struct {
@@ -37,8 +38,8 @@ type LLMConfig struct {
 }
 
 type AdminConfig struct {
-	PasswordHash string `yaml:"password_hash"`
-	SecretToken  string `yaml:"secret_token"`
+	PasswordHash    string `yaml:"password_hash"`
+	SessionTTLHours int    `yaml:"session_ttl_hours"`
 }
 
 type DeepLConfig struct {
@@ -88,6 +89,9 @@ func Load(path string) (*Config, error) {
 		DeepL: DeepLConfig{
 			APIKey: "",
 			URL:    "https://api-free.deepl.com/v2/translate",
+		},
+		Admin: AdminConfig{
+			SessionTTLHours: 12,
 		},
 	}
 

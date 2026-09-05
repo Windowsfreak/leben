@@ -14,6 +14,8 @@
         <button class="btn-admin" id="refreshVectorsBtn" title="Vektoren Neu Generieren"><i
                 class="fa-solid fa-arrows-rotate"></i> <span class="btn-text">Vektoren Neu
                 Generieren</span></button>
+        <button class="btn-admin" id="sessionsBtn" title="Sitzungen & Geräte verwalten"><i
+                class="fa-solid fa-shield-halved"></i> <span class="btn-text">Sitzungen</span></button>
         <button class="btn-admin" id="logoutBtn" title="Abmelden"><i class="fa-solid fa-right-from-bracket"></i>
             <span class="btn-text">Abmelden</span></button>
     </div>
@@ -27,6 +29,7 @@
             <button class="close-btn" id="closeLoginBtn">&times;</button>
         </div>
         <div class="dialog-body">
+            <div id="loginHint" style="display:none; margin-bottom: 1rem; padding: 0.6rem 0.8rem; border-radius: 8px; background: rgba(251, 191, 36, 0.12); color: var(--accent); font-size: 0.85rem;"></div>
             <form id="loginForm" onsubmit="return false;">
                 <div class="admin-form-group">
                     <label for="adminPassword">Passwort eingeben</label>
@@ -320,6 +323,28 @@
 
             <div class="mt-4" style="display:flex; gap:1rem; justify-content: flex-end;">
                 <button type="button" class="btn" id="cancelImagePickerBtn">Schließen</button>
+            </div>
+        </div>
+    </div>
+</dialog>
+
+<!-- 7b. SESSIONS & DEVICES DIALOG -->
+<dialog id="sessionsDialog" style="max-width: 800px; width: 95%;">
+    <div class="dialog-container">
+        <div class="dialog-header-bar">
+            <div class="dialog-header-title"><i class="fa-solid fa-shield-halved" style="color: var(--accent);"></i> Sitzungen &amp; Geräte</div>
+            <button class="close-btn" id="closeSessionsBtn">&times;</button>
+        </div>
+        <div class="dialog-body">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; gap: 1rem; flex-wrap: wrap;">
+                <span style="font-size: 0.85rem; color: var(--text-secondary);">Alle aktiven Browser-Sitzungen und Geräte-API-Zugriffe. Beendete Zugriffe verlieren sofort ihre Gültigkeit.</span>
+                <button type="button" class="btn-admin" id="refreshSessionsBtn" title="Liste aktualisieren"><i class="fa-solid fa-arrows-rotate"></i> Aktualisieren</button>
+            </div>
+            <div id="sessionsListContainer" class="tasks-list">
+                <!-- Dynamically rendered -->
+            </div>
+            <div class="mt-4" style="display: flex; justify-content: flex-end;">
+                <button type="button" class="btn" id="closeSessionsBtn2">Schließen</button>
             </div>
         </div>
     </div>

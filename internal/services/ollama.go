@@ -13,7 +13,7 @@ import (
 )
 
 type OllamaService struct {
-	cfg *config.Config
+	cfg    *config.Config
 	client *http.Client
 }
 
@@ -88,5 +88,3 @@ func (s *OllamaService) GetEmbedding(ctx context.Context, text string, embedType
 
 	return res.Embeddings[0], nil
 }
-
-
