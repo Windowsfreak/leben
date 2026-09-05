@@ -28,8 +28,11 @@ function getReferenceHeader() {
     return getSavedReferenceCodes().join(',');
 }
 
-function buildApiHeaders() {
+function buildApiHeaders(purpose = 'frontend') {
     const headers = {};
+    if (purpose) {
+        headers['X-Purpose'] = purpose;
+    }
     const ref = getReferenceHeader();
     if (ref) {
         headers['X-Reference'] = ref;
@@ -75,7 +78,7 @@ function buildApiHeaders() {
 let q = '';
 let lang = 'de';
 let offset = 0;
-const limit = 12;
+const limit = 24;
 let loading = false;
 let hasMore = true;
 let isAdmin = false;
@@ -315,6 +318,8 @@ function setupWallpaper() {
 function resetAndLoad() {
     offset = 0;
     hasMore = true;
+    const trigger = document.getElementById('loadingTrigger');
+    if (trigger) trigger.classList.add('has-more');
     document.getElementById('tilesGrid').innerHTML = '';
     loadMore();
 }
@@ -338,7 +343,7 @@ function loadMore() {
         })
         .then(res => {
             if (res.status === 'success') {
-                const tiles = res.data;
+                const tiles = res.tiles;
                 const grid = document.getElementById('tilesGrid');
                 
                 tiles.forEach(tile => {
@@ -362,7 +367,40 @@ function loadMore() {
         .finally(() => {
             loading = false;
             spinner.classList.remove('active');
+            const trigger = document.getElementById('loadingTrigger');
+            if (trigger) {
+                if (hasMore) {
+                    trigger.classList.add('has-more');
+                } else {
+                    trigger.classList.remove('has-more');
+                }
+            }
+            if (typeof updateScrollVariables === 'function') {
+                updateScrollVariables();
+            }
         });
+}
+
+// Background Image Lazy Loader
+let tileBgObserver = null;
+function getTileBgObserver() {
+    if (!tileBgObserver && 'IntersectionObserver' in window) {
+        tileBgObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const el = entry.target;
+                    if (el.dataset.bg) {
+                        el.style.background = el.dataset.bg;
+                        delete el.dataset.bg;
+                    }
+                    tileBgObserver.unobserve(el);
+                }
+            });
+        }, {
+            rootMargin: '300px 0px'
+        });
+    }
+    return tileBgObserver;
 }
 
 // Apply custom background and modular theme override classes to a tile element
@@ -376,6 +414,7 @@ function applyTileTheme(tileElement, backgroundValue) {
 
     if (!backgroundValue || typeof backgroundValue !== 'string' || !backgroundValue.trim()) {
         tileElement.style.background = '';
+        delete tileElement.dataset.bg;
         return;
     }
 
@@ -384,9 +423,20 @@ function applyTileTheme(tileElement, backgroundValue) {
     const cleanBackground = trimmed.replace(/\/\*.*?\*\//g, '').trim();
 
     if (cleanBackground) {
-        tileElement.style.background = cleanBackground;
+        if (cleanBackground.includes('url(')) {
+            const observer = getTileBgObserver();
+            if (observer) {
+                tileElement.dataset.bg = cleanBackground;
+                observer.observe(tileElement);
+            } else {
+                tileElement.style.background = cleanBackground;
+            }
+        } else {
+            tileElement.style.background = cleanBackground;
+        }
     } else {
         tileElement.style.background = '';
+        delete tileElement.dataset.bg;
     }
 
     if (commentMatch) {
@@ -463,7 +513,7 @@ let isProgrammaticRouting = false;
 // Format hash for tile depending on default app language vs tile language
 function getHashForTile(tile) {
     const tileName = tile.name.toLowerCase();
-    const tileLang = (tile.language || lang).toLowerCase();
+    const tileLang = (tile.lang || lang).toLowerCase();
     const defaultLang = lang.toLowerCase();
     
     if (tileLang !== defaultLang) {
@@ -535,7 +585,7 @@ function parseURLForTile() {
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has('lang')) {
         const queryLang = urlParams.get('lang').trim().toLowerCase();
-        if (queryLang) {
+        if (supportedCodes.includes(queryLang)) {
             tileLang = queryLang;
         }
     }
@@ -544,13 +594,12 @@ function parseURLForTile() {
         tileName = tileName.trim().toLowerCase();
     }
 
-    return { name: tileName, lang: tileLang };
+    return { name: tileName || null, lang: tileLang };
 }
 
 // Handle URL routing based on hash or pathname
 function handleURLRouting() {
     if (isProgrammaticRouting) return;
-
     const route = parseURLForTile();
     
     if (route.name) {
@@ -560,15 +609,15 @@ function handleURLRouting() {
         // Skip re-fetching if active tile is already showing this tile and language
         if (activeLightboxTile && 
             activeLightboxTile.name.toLowerCase() === route.name.toLowerCase() && 
-            activeLightboxTile.language === fetchLang) {
+            activeLightboxTile.lang === fetchLang) {
             return;
         }
 
         fetch(`/api/tiles/${encodeURIComponent(route.name)}?lang=${encodeURIComponent(fetchLang)}`, { headers: buildApiHeaders() })
             .then(res => res.json())
             .then(res => {
-                if (res.status === 'success' && res.data) {
-                    openLightbox(res.data, false);
+                if (res.status === 'success' && res.tile) {
+                    openLightbox(res.tile, false);
                 } else {
                     // Tile not found by exact name: close lightbox, put keyword into search input, and run search
                     const dialog = document.getElementById('detailsDialog');
@@ -609,15 +658,17 @@ function openLightbox(tile, updateHistory = true) {
     activeLightboxTile = tile;
     const dialog = document.getElementById('detailsDialog');
     const header = document.getElementById('detailsDialogHeader');
-    const body = document.getElementById('detailsDialogBody');
+    const dialogBody = document.getElementById('detailsDialogBody');
+    const articleContainer = document.getElementById('detailsArticleContent') || dialogBody;
     const infoPanel = document.getElementById('detailsInfoPanel');
     const infoBtn = document.getElementById('infoDetailsBtn');
 
     if (infoPanel) infoPanel.style.display = 'none';
     if (infoBtn) infoBtn.classList.remove('active');
+    if (dialogBody) dialogBody.scrollTop = 0;
     
     header.textContent = tile.title;
-    body.innerHTML = '<div style="display:flex; justify-content:center; padding: 2rem;"><div class="spinner active"></div></div>';
+    articleContainer.innerHTML = '<div style="display:flex; justify-content:center; padding: 2rem;"><div class="spinner active"></div></div>';
     
     if (!dialog.open) {
         dialog.showModal();
@@ -628,7 +679,7 @@ function openLightbox(tile, updateHistory = true) {
         const newHash = getHashForTile(tile);
         if (window.location.hash !== newHash) {
             isProgrammaticRouting = true;
-            history.pushState({ tileName: tile.name, lang: tile.language }, '', newHash);
+            history.pushState({ tileName: tile.name, lang: tile.lang }, '', newHash);
             setTimeout(() => { isProgrammaticRouting = false; }, 0);
         }
     }
@@ -649,12 +700,12 @@ function openLightbox(tile, updateHistory = true) {
                 return res.text();
             })
             .then(html => {
-                body.innerHTML = html;
-                tryRenderEditButton(tile, body);
-                loadSimilarTiles(tile.name, body);
+                articleContainer.innerHTML = html;
+                tryRenderEditButton(tile, articleContainer);
+                loadSimilarTiles(tile.name, articleContainer);
             })
             .catch(err => {
-                body.innerHTML = `
+                articleContainer.innerHTML = `
                     <div class="lightbox-article">
                         <h2>${tile.title}</h2>
                         <div class="article-body">
@@ -663,12 +714,12 @@ function openLightbox(tile, updateHistory = true) {
                         </div>
                     </div>
                 `;
-                tryRenderEditButton(tile, body);
-                loadSimilarTiles(tile.name, body);
+                tryRenderEditButton(tile, articleContainer);
+                loadSimilarTiles(tile.name, articleContainer);
             });
     } else {
         // Fallback to database html rendering
-        body.innerHTML = `
+        articleContainer.innerHTML = `
             <div class="lightbox-article">
                 <h2>${tile.title}</h2>
                 <div class="article-body">
@@ -676,8 +727,8 @@ function openLightbox(tile, updateHistory = true) {
                 </div>
             </div>
         `;
-        tryRenderEditButton(tile, body);
-        loadSimilarTiles(tile.name, body);
+        tryRenderEditButton(tile, articleContainer);
+        loadSimilarTiles(tile.name, articleContainer);
     }
 }
 
@@ -685,11 +736,11 @@ function openLightbox(tile, updateHistory = true) {
 window.refreshActiveLightbox = function() {
     if (activeLightboxTile) {
         if (!activeLightboxTile.content_file) {
-            fetch(`/api/tiles/${encodeURIComponent(activeLightboxTile.name)}?lang=${activeLightboxTile.language}`, { headers: buildApiHeaders() })
+            fetch(`/api/tiles/${encodeURIComponent(activeLightboxTile.name)}?lang=${activeLightboxTile.lang}`, { headers: buildApiHeaders() })
                 .then(r => r.json())
                 .then(r => {
                     if (r.status === 'success') {
-                        openLightbox(r.data, false);
+                        openLightbox(r.tile, false);
                     }
                 });
         } else {
@@ -720,6 +771,7 @@ function formatDateTime(dateStr) {
 function toggleLightboxInfoPanel() {
     const panel = document.getElementById('detailsInfoPanel');
     const infoBtn = document.getElementById('infoDetailsBtn');
+    const dialogBody = document.getElementById('detailsDialogBody');
     if (!panel || !activeLightboxTile) return;
 
     if (panel.style.display === 'block') {
@@ -730,6 +782,10 @@ function toggleLightboxInfoPanel() {
 
     panel.style.display = 'block';
     if (infoBtn) infoBtn.classList.add('active');
+
+    if (dialogBody && dialogBody.scrollTop > 0) {
+        dialogBody.scrollTo({ top: 0, behavior: 'smooth' });
+    }
 
     panel.innerHTML = '<div style="display:flex; justify-content:center; padding: 1rem;"><div class="spinner active"></div></div>';
 
@@ -753,7 +809,7 @@ function renderLightboxInfoPanel(versions) {
     const panel = document.getElementById('detailsInfoPanel');
     if (!panel || !activeLightboxTile) return;
 
-    const currentVersion = versions.find(v => v.language === activeLightboxTile.language) || activeLightboxTile;
+    const currentVersion = versions.find(v => v.lang === activeLightboxTile.lang) || activeLightboxTile;
     const createdAtText = formatDateTime(currentVersion.created_at || activeLightboxTile.created_at);
     const updatedAtText = formatDateTime(currentVersion.updated_at || activeLightboxTile.updated_at);
 
@@ -785,13 +841,13 @@ function renderLightboxInfoPanel(versions) {
 
     versions.forEach((v, index) => {
         const isSource = (index === 0);
-        const isCurrent = (v.language === activeLightboxTile.language);
-        const langName = supportedMap[v.language] || v.language.toUpperCase();
-        const hashtag = `#${v.name || activeLightboxTile.name}:${v.language}`;
+        const isCurrent = (v.lang === activeLightboxTile.lang);
+        const langName = supportedMap[v.lang] || v.lang.toUpperCase();
+        const hashtag = `#${v.name || activeLightboxTile.name}:${v.lang}`;
         const vUpdated = formatDateTime(v.updated_at);
 
         html += `
-            <div class="info-lang-item ${isCurrent ? 'is-current' : ''}" data-lang="${v.language}" data-name="${v.name || activeLightboxTile.name}">
+            <div class="info-lang-item ${isCurrent ? 'is-current' : ''}" data-lang="${v.lang}" data-name="${v.name || activeLightboxTile.name}">
                 <div class="info-lang-left">
                     <span class="info-lang-code">${hashtag}</span>
                     <span class="info-lang-name">${langName}</span>
@@ -817,13 +873,13 @@ function renderLightboxInfoPanel(versions) {
             e.preventDefault();
             const targetLang = item.getAttribute('data-lang');
             const targetName = item.getAttribute('data-name');
-            if (targetLang === activeLightboxTile.language) return;
+            if (targetLang === activeLightboxTile.lang) return;
 
             fetch(`/api/tiles/${encodeURIComponent(targetName)}?lang=${encodeURIComponent(targetLang)}`, { headers: buildApiHeaders() })
                 .then(r => r.json())
                 .then(r => {
-                    if (r.status === 'success' && r.data) {
-                        openLightbox(r.data, true);
+                    if (r.status === 'success' && r.tile) {
+                        openLightbox(r.tile, true);
                     }
                 });
         });
@@ -833,10 +889,10 @@ function renderLightboxInfoPanel(versions) {
 
 // Fetch and append similar tiles at the bottom of the lightbox
 function loadSimilarTiles(tileName, targetBody) {
-    fetch(`/api/tiles?similar=${encodeURIComponent(tileName)}&lang=${lang}&limit=3`, { headers: buildApiHeaders() })
+    fetch(`/api/tiles?similar=${encodeURIComponent(tileName)}&lang=${lang}&limit=4`, { headers: buildApiHeaders() })
         .then(res => res.json())
         .then(res => {
-            if (res.status === 'success' && res.data && res.data.length > 0) {
+            if (res.status === 'success' && res.tiles && res.tiles.length > 0) {
                 const section = document.createElement('div');
                 section.className = 'see-also-section';
                 const heroDetails = appConfig && appConfig.hero ? (appConfig.hero[lang] || appConfig.hero['de'] || {}) : {};
@@ -846,7 +902,7 @@ function loadSimilarTiles(tileName, targetBody) {
                 const grid = document.createElement('div');
                 grid.className = 'see-also-grid';
                 
-                res.data.forEach(item => {
+                res.tiles.forEach(item => {
                     // Create the tile element using the same builder function as the main page
                     const card = createTileElement(item, true);
                     
@@ -877,12 +933,15 @@ function setupScrollObserver() {
     if (observer) observer.disconnect();
     
     const trigger = document.getElementById('loadingTrigger');
+    if (!trigger) return;
+    if (hasMore) trigger.classList.add('has-more');
+
     observer = new IntersectionObserver((entries) => {
         if (entries[0].isIntersecting && hasMore && !loading) {
             loadMore();
         }
     }, {
-        rootMargin: '100px'
+        rootMargin: '1000px 0px'
     });
     
     observer.observe(trigger);

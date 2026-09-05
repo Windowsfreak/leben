@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,6 +109,16 @@ func (s *TileService) SearchTiles(ctx context.Context, prefLang, queryStr string
 			)
 			if err != nil {
 				return nil, err
+			}
+			if tile.Distance > 0 && tile.Distance <= 2.0 {
+				sim := math.Round((1.0-tile.Distance)*100) / 100
+				if sim < 0 {
+					sim = 0
+				}
+				if sim > 1 {
+					sim = 1
+				}
+				tile.Score = &sim
 			}
 			if tagsStr.Valid {
 				tile.Tags = db.PostgresToTags(tagsStr.String)
@@ -245,6 +256,16 @@ func (s *TileService) GetSimilarTiles(ctx context.Context, name, prefLang string
 		if err != nil {
 			return nil, err
 		}
+		if tile.Distance > 0 && tile.Distance <= 2.0 {
+			sim := math.Round((1.0-tile.Distance)*100) / 100
+			if sim < 0 {
+				sim = 0
+			}
+			if sim > 1 {
+				sim = 1
+			}
+			tile.Score = &sim
+		}
 		if tagsStr.Valid {
 			tile.Tags = db.PostgresToTags(tagsStr.String)
 		}
@@ -341,7 +362,7 @@ func (s *TileService) GetTileInfo(ctx context.Context, name string, refCodes []s
 	for rows.Next() {
 		var s models.TileSummary
 		var cf sql.NullString
-		if err := rows.Scan(&s.ID, &s.Name, &s.Language, &s.Title, &s.CreatedAt, &s.UpdatedAt, &s.Visible, &cf); err != nil {
+		if err := rows.Scan(&s.ID, &s.Name, &s.Lang, &s.Title, &s.CreatedAt, &s.UpdatedAt, &s.Visible, &cf); err != nil {
 			return nil, err
 		}
 		if cf.Valid {
@@ -392,7 +413,12 @@ func (s *TileService) SaveTile(ctx context.Context, tile *models.Tile) error {
 	if tile.AccentColor == "" {
 		tile.AccentColor = "#fbbf24"
 	}
-	if tile.Type == "" {
+	// Sanitize and normalize Type: strip any parenthesized annotation (e.g. doc(15000b) -> doc)
+	tile.Type = strings.TrimSpace(tile.Type)
+	if idx := strings.Index(tile.Type, "("); idx != -1 {
+		tile.Type = strings.TrimSpace(tile.Type[:idx])
+	}
+	if tile.Type != "link" {
 		tile.Type = "doc"
 	}
 
@@ -481,7 +507,16 @@ func (s *TileService) GetTranslationStatus(ctx context.Context, tileName string)
 		if len(siblings) == 0 {
 			continue
 		}
-		sourceRow := siblings[0]
+		var sourceRow *models.Tile
+		for _, sib := range siblings {
+			if sib.Language == "de" {
+				sourceRow = sib
+				break
+			}
+		}
+		if sourceRow == nil {
+			sourceRow = siblings[0]
+		}
 		sourceLang := sourceRow.Language
 		sourceDBTime := sourceRow.UpdatedAt
 

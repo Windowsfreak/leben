@@ -7,7 +7,7 @@ import (
 type Tile struct {
 	ID          int       `json:"id"`
 	Name        string    `json:"name"`
-	Language    string    `json:"language"`
+	Language    string    `json:"lang"`
 	Tags        string    `json:"tags"`
 	Title       string    `json:"title"`
 	HTMLTeaser  string    `json:"html_teaser"`
@@ -23,13 +23,36 @@ type Tile struct {
 	SortOrder   int       `json:"sort_order"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
-	Distance    float64   `json:"distance,omitempty"`
+	Distance    float64   `json:"-"`
+	Score       *float64  `json:"score,omitempty"`
+}
+
+type TileDTO struct {
+	Index       int      `json:"index,omitempty" toon:"index,omitempty"`
+	ID          int      `json:"id,omitempty" toon:"id,omitempty"`
+	Name        string   `json:"name" toon:"name"`
+	Lang        string   `json:"lang,omitempty" toon:"lang,omitempty"`
+	Title       string   `json:"title" toon:"title"`
+	HTMLTeaser  string   `json:"html_teaser,omitempty" toon:"html_teaser,omitempty"`
+	Summary     string   `json:"summary,omitempty" toon:"summary,omitempty"`
+	Content     string   `json:"content,omitempty" toon:"content,omitempty"`
+	ContentFile string   `json:"content_file,omitempty" toon:"content_file,omitempty"`
+	Type        string   `json:"type,omitempty" toon:"type,omitempty"`
+	Tags        string   `json:"tags,omitempty" toon:"tags,omitempty"`
+	Link        string   `json:"link,omitempty" toon:"link,omitempty"`
+	Date        string   `json:"date,omitempty" toon:"date,omitempty"`
+	Score       *float64 `json:"score,omitempty" toon:"score,omitempty"`
+	AccentColor string   `json:"accent_color,omitempty" toon:"accent_color,omitempty"`
+	Background  string   `json:"background,omitempty" toon:"background,omitempty"`
+	Visible     *bool    `json:"visible,omitempty" toon:"visible,omitempty"`
+	Secret      string   `json:"secret,omitempty" toon:"secret,omitempty"`
+	SortOrder   int      `json:"sort_order,omitempty" toon:"sort_order,omitempty"`
 }
 
 type TileSummary struct {
 	ID          int       `json:"id"`
 	Name        string    `json:"name"`
-	Language    string    `json:"language"`
+	Lang        string    `json:"lang"`
 	Title       string    `json:"title"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`

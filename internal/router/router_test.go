@@ -16,6 +16,7 @@ import (
 
 	"github.com/windowsfreak/leben/internal/auth"
 	"github.com/windowsfreak/leben/internal/config"
+	"github.com/windowsfreak/leben/internal/models"
 )
 
 func TestRouterInitialization(t *testing.T) {
@@ -264,4 +265,102 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func TestFrontendTileSerialization(t *testing.T) {
+	tile := &models.Tile{
+		ID:          1,
+		Name:        "test-tile",
+		Language:    "de",
+		Tags:        "test,demo",
+		Title:       "Test Tile",
+		HTMLTeaser:  "<p>Teaser</p>",
+		Summary:     "Internal embedding summary",
+		Visible:     true,
+		AccentColor: "#3b82f6",
+		Type:        "doc",
+	}
+
+	// 1. Non-admin frontend DTO
+	publicDto := toFrontendTileDTO(tile, false)
+	publicData, err := json.Marshal(publicDto)
+	if err != nil {
+		t.Fatalf("failed to marshal public TileDTO: %v", err)
+	}
+
+	var publicMap map[string]any
+	if err := json.Unmarshal(publicData, &publicMap); err != nil {
+		t.Fatalf("failed to unmarshal public JSON: %v", err)
+	}
+
+	forbiddenPublicKeys := []string{"id", "summary", "tags", "language", "index", "score", "visible", "secret", "sort_order"}
+	for _, key := range forbiddenPublicKeys {
+		if _, exists := publicMap[key]; exists {
+			t.Errorf("expected key %q to be omitted from public TileDTO JSON, but it was present", key)
+		}
+	}
+
+	requiredPublicKeys := []string{"name", "lang", "title", "html_teaser", "accent_color", "type"}
+	for _, key := range requiredPublicKeys {
+		if _, exists := publicMap[key]; !exists {
+			t.Errorf("expected required key %q in public TileDTO JSON, but it was missing", key)
+		}
+	}
+
+	// 2. Admin frontend DTO
+	adminDto := toFrontendTileDTO(tile, true)
+	adminData, err := json.Marshal(adminDto)
+	if err != nil {
+		t.Fatalf("failed to marshal admin TileDTO: %v", err)
+	}
+
+	var adminMap map[string]any
+	if err := json.Unmarshal(adminData, &adminMap); err != nil {
+		t.Fatalf("failed to unmarshal admin JSON: %v", err)
+	}
+
+	requiredAdminKeys := []string{"id", "name", "lang", "title", "visible", "tags"}
+	for _, key := range requiredAdminKeys {
+		if _, exists := adminMap[key]; !exists {
+			t.Errorf("expected required key %q in admin TileDTO JSON, but it was missing", key)
+		}
+	}
+}
+
+func TestRichTileDTOSerialization(t *testing.T) {
+	scoreVal := 0.85
+	tile := &models.Tile{
+		ID:          42,
+		Name:        "deep-thought",
+		Language:    "en",
+		Tags:        "ai,philosophy",
+		Title:       "Deep Thought",
+		HTMLTeaser:  "<p>Teaser</p>",
+		Summary:     "42 is the answer",
+		Visible:     true,
+		AccentColor: "#fbbf24",
+		Type:        "doc",
+		Score:       &scoreVal,
+	}
+
+	dto := toRichTileDTO(tile, 1, "summary", 0, t.TempDir(), "answer", "")
+	data, err := json.Marshal(dto)
+	if err != nil {
+		t.Fatalf("failed to marshal rich TileDTO: %v", err)
+	}
+
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatalf("failed to unmarshal JSON: %v", err)
+	}
+
+	if m["name"] != "deep-thought" || m["lang"] != "en" || m["score"] != 0.85 {
+		t.Errorf("unexpected rich TileDTO values: %v", m)
+	}
+	if _, exists := m["distance"]; exists {
+		t.Errorf("distance must not be serialized in TileDTO")
+	}
+	if _, exists := m["language"]; exists {
+		t.Errorf("language must not be serialized in TileDTO (use lang)")
+	}
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -207,83 +208,32 @@ func (r *Router) handleGetTiles(w http.ResponseWriter, req *http.Request, _ http
 		return
 	}
 
-	contentsDir := filepath.Join(r.cfg.Server.WebDir, "content")
-
-	var items []toon.Item
-	for idx, t := range tiles {
-		tagsStr := t.Tags
-		dateStr := t.UpdatedAt.Format("2006-01-02")
-
-		typeStr := t.Type
-		if typeStr == "" {
-			typeStr = "doc"
+	if strings.EqualFold(req.Header.Get("X-Purpose"), "frontend") {
+		isAdmin := r.auth.IsAdmin(req)
+		frontendTiles := make([]models.TileDTO, len(tiles))
+		for i, t := range tiles {
+			frontendTiles[i] = toFrontendTileDTO(t, isAdmin)
 		}
-		if t.ContentFile != "" {
-			fPath := filepath.Join(contentsDir, t.ContentFile)
-			if info, err := os.Stat(fPath); err == nil {
-				typeStr = fmt.Sprintf("doc(%db)", info.Size())
-			}
-		}
-
-		scoreStr := ""
-		if (qStr != "" || similarName != "") && t.Distance > 0 && t.Distance <= 2.0 {
-			sim := 1.0 - t.Distance
-			if sim < 0 {
-				sim = 0
-			}
-			if sim > 1 {
-				sim = 1
-			}
-			scoreStr = fmt.Sprintf("%.2f", sim)
-		}
-
-		summaryText := t.Summary
-		bodyText := ""
-
-		if detail == "full" {
-			if t.ContentFile != "" {
-				fPath := filepath.Join(contentsDir, t.ContentFile)
-				if bytes, err := os.ReadFile(fPath); err == nil {
-					bodyText = string(bytes)
-				}
-			} else if t.Link != "" {
-				bodyText = "Link URL: " + t.Link
-			} else {
-				bodyText = t.HTMLTeaser
-			}
-		}
-
-		if detail == "snippet" && crop <= 0 {
-			crop = 70
-		}
-		if crop > 0 {
-			if len(summaryText) > crop {
-				summaryText = summaryText[:crop] + "..."
-			}
-			if len(bodyText) > crop {
-				bodyText = bodyText[:crop] + "..."
-			}
-		}
-
-		items = append(items, toon.Item{
-			Index:   offset + idx + 1,
-			Name:    t.Name,
-			Title:   t.Title,
-			Lang:    t.Language,
-			Tags:    tagsStr,
-			Type:    typeStr,
-			Date:    dateStr,
-			Score:   scoreStr,
-			Summary: summaryText,
-			Content: bodyText,
-			Link:    t.Link,
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status": "success",
+			"query":  qStr,
+			"format": detail,
+			"count":  len(frontendTiles),
+			"tiles":  frontendTiles,
 		})
+		return
+	}
+
+	contentsDir := filepath.Join(r.cfg.Server.WebDir, "content")
+	dtos := make([]models.TileDTO, len(tiles))
+	for idx, t := range tiles {
+		dtos[idx] = toRichTileDTO(t, offset+idx+1, detail, crop, contentsDir, qStr, similarName)
 	}
 
 	if format == "toon" {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("X-LLM-Format", "TOON")
-		output, err := toon.FormatTOON(qStr, lang, detail, items)
+		output, err := toon.FormatTOON(qStr, lang, detail, dtos)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -298,10 +248,109 @@ func (r *Router) handleGetTiles(w http.ResponseWriter, req *http.Request, _ http
 		"query":  qStr,
 		"lang":   lang,
 		"format": detail,
-		"count":  len(tiles),
-		"data":   tiles,
-		"items":  items,
+		"count":  len(dtos),
+		"tiles":  dtos,
 	})
+}
+
+func toFrontendTileDTO(t *models.Tile, isAdmin bool) models.TileDTO {
+	dto := models.TileDTO{
+		Name:        t.Name,
+		Lang:        t.Language,
+		Title:       t.Title,
+		HTMLTeaser:  t.HTMLTeaser,
+		Link:        t.Link,
+		Type:        t.Type,
+		ContentFile: t.ContentFile,
+		AccentColor: t.AccentColor,
+		Background:  t.Background,
+	}
+	if isAdmin {
+		dto.ID = t.ID
+		visibleCopy := t.Visible
+		dto.Visible = &visibleCopy
+		dto.Secret = t.Secret
+		dto.SortOrder = t.SortOrder
+		dto.Tags = t.Tags
+	}
+	return dto
+}
+
+func toRichTileDTO(t *models.Tile, idx int, detail string, crop int, contentsDir string, qStr, similarName string) models.TileDTO {
+	tagsStr := t.Tags
+	dateStr := t.UpdatedAt.Format("2006-01-02")
+
+	typeStr := t.Type
+	if typeStr == "" {
+		typeStr = "doc"
+	}
+	if t.ContentFile != "" {
+		fPath := filepath.Join(contentsDir, t.ContentFile)
+		if info, err := os.Stat(fPath); err == nil {
+			typeStr = fmt.Sprintf("doc(%db)", info.Size())
+		}
+	}
+
+	var score *float64
+	if t.Score != nil {
+		score = t.Score
+	} else if (qStr != "" || similarName != "") && t.Distance > 0 && t.Distance <= 2.0 {
+		sim := math.Round((1.0-t.Distance)*100) / 100
+		if sim < 0 {
+			sim = 0
+		}
+		if sim > 1 {
+			sim = 1
+		}
+		score = &sim
+	}
+
+	summaryText := t.Summary
+	bodyText := ""
+
+	if detail == "full" {
+		if t.ContentFile != "" {
+			fPath := filepath.Join(contentsDir, t.ContentFile)
+			if bytes, err := os.ReadFile(fPath); err == nil {
+				bodyText = string(bytes)
+			}
+		} else if t.Link != "" {
+			bodyText = "Link URL: " + t.Link
+		} else {
+			bodyText = t.HTMLTeaser
+		}
+	}
+
+	if detail == "snippet" && crop <= 0 {
+		crop = 70
+	}
+	if crop > 0 {
+		if len(summaryText) > crop {
+			summaryText = summaryText[:crop] + "..."
+		}
+		if len(bodyText) > crop {
+			bodyText = bodyText[:crop] + "..."
+		}
+	}
+
+	return models.TileDTO{
+		Index:       idx,
+		ID:          t.ID,
+		Name:        t.Name,
+		Lang:        t.Language,
+		Title:       t.Title,
+		HTMLTeaser:  t.HTMLTeaser,
+		Summary:     summaryText,
+		Content:     bodyText,
+		ContentFile: t.ContentFile,
+		Type:        typeStr,
+		Tags:        tagsStr,
+		Link:        t.Link,
+		Date:        dateStr,
+		Score:       score,
+		AccentColor: t.AccentColor,
+		Background:  t.Background,
+	}
 }
 
 func (r *Router) handleGetTileByName(w http.ResponseWriter, req *http.Request, ps httprouter.Params) {
@@ -321,7 +370,7 @@ func (r *Router) handleGetTileByName(w http.ResponseWriter, req *http.Request, p
 
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status": "success",
-		"data":   tile,
+		"tile":   tile,
 	})
 }
 

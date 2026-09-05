@@ -113,7 +113,7 @@ function forceLogout(message) {
 }
 
 // Open Editor Modal (creates a new tile if no tile parameters passed)
-function openEditor(tile = null) {
+async function openEditor(tile = null) {
     window.isEditing = true;
     formDirty = false;
     isPopulating = true;
@@ -127,33 +127,50 @@ function openEditor(tile = null) {
     const dialog = document.getElementById('editorDialog');
     document.getElementById('editorForm').reset();
     
+    let fullTile = tile;
+    if (tile && tile.name) {
+        try {
+            // Fetch without X-Purpose: frontend to reload complete tile with summary, tags, etc.
+            const tileLang = tile.lang || (typeof lang !== 'undefined' ? lang : 'de');
+            const res = await fetch(`/api/tiles/${encodeURIComponent(tile.name)}?lang=${encodeURIComponent(tileLang)}`, {
+                headers: buildApiHeaders('')
+            });
+            const json = await res.json();
+            if (json.status === 'success' && json.tile) {
+                fullTile = json.tile;
+            }
+        } catch (e) {
+            console.error("Failed to reload full tile for editor:", e);
+        }
+    }
+    
     let htmlContent = '';
     
-    if (tile) {
-        document.getElementById('editorDialogTitle').textContent = `Kachel bearbeiten: ${tile.title}`;
-        document.getElementById('editId').value = tile.id;
-        document.getElementById('editName').value = tile.name;
-        document.getElementById('editLanguage').value = tile.language;
-        document.getElementById('editTitle').value = tile.title;
+    if (fullTile) {
+        document.getElementById('editorDialogTitle').textContent = `Kachel bearbeiten: ${fullTile.title}`;
+        document.getElementById('editId').value = fullTile.id;
+        document.getElementById('editName').value = fullTile.name;
+        document.getElementById('editLanguage').value = fullTile.lang;
+        document.getElementById('editTitle').value = fullTile.title;
         
-        document.getElementById('editCategoryTags').value = tile ? (tile.tags || '') : '';
+        document.getElementById('editCategoryTags').value = fullTile.tags || '';
         
-        document.getElementById('editSummary').value = tile.summary || '';
-        document.getElementById('editReferenceType').value = tile.type || 'doc';
-        document.getElementById('editLink').value = tile.link || '';
-        document.getElementById('editContentFile').value = tile.content_file || '';
-        document.getElementById('editHtmlContent').value = tile.html_teaser || '';
-        document.getElementById('editVisible').checked = tile.visible;
-        document.getElementById('editSecret').value = tile.secret || '';
-        document.getElementById('editSortOrder').value = tile.sort_order || 100;
-        document.getElementById('editBackground').value = tile.background || '';
+        document.getElementById('editSummary').value = fullTile.summary || '';
+        document.getElementById('editReferenceType').value = fullTile.type || 'doc';
+        document.getElementById('editLink').value = fullTile.link || '';
+        document.getElementById('editContentFile').value = fullTile.content_file || '';
+        document.getElementById('editHtmlContent').value = fullTile.html_teaser || '';
+        document.getElementById('editVisible').checked = fullTile.visible;
+        document.getElementById('editSecret').value = fullTile.secret || '';
+        document.getElementById('editSortOrder').value = fullTile.sort_order || 100;
+        document.getElementById('editBackground').value = fullTile.background || '';
         
         // Populate color inputs
-        const color = tile.accent_color || '#fbbf24';
+        const color = fullTile.accent_color || '#fbbf24';
         document.getElementById('editAccentColor').value = color;
         document.getElementById('editAccentColorPicker').value = color;
         
-        htmlContent = tile.html_teaser || '';
+        htmlContent = fullTile.html_teaser || '';
      } else {
         document.getElementById('editorDialogTitle').textContent = "Neue Kachel erstellen";
         document.getElementById('editId').value = '';
@@ -537,7 +554,7 @@ function saveTile(syncSiblings = false) {
         
     const payload = {
         name: document.getElementById('editName').value,
-        language: document.getElementById('editLanguage').value,
+        lang: document.getElementById('editLanguage').value,
         title: document.getElementById('editTitle').value,
         tags: document.getElementById('editCategoryTags').value,
         summary: document.getElementById('editSummary').value,
@@ -1261,7 +1278,7 @@ function renderAdminControls(tileDiv, tile) {
     const badgeWrapper = document.createElement('div');
     badgeWrapper.className = 'translation-badges';
     badgeWrapper.dataset.tileName = tile.name;
-    badgeWrapper.dataset.tileLang = tile.language;
+    badgeWrapper.dataset.tileLang = tile.lang;
     adminBar.appendChild(badgeWrapper);
     renderTileBadge(badgeWrapper, tile.name);
     

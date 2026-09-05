@@ -99,7 +99,7 @@ func TestCleanLLMTranslationOutput(t *testing.T) {
 }
 
 func TestFullArticleMaskingRoundtrip(t *testing.T) {
-	bytes, err := os.ReadFile("../../frontend/content/islamic-finance-modern-investments-de.html")
+	bytes, err := os.ReadFile("../../frontend/content/islamic-finance-modern-investments_de.html")
 	if err != nil {
 		t.Skip("skipping full article test: file not found")
 	}

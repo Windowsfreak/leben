@@ -27,13 +27,14 @@ Semantic vector search across all visible cards. No authentication required.
 - `X-Reference: <code1>,<code2>`: Unlocks cards protected by private reference codes.
 
 ### Response Formats
-- **JSON**: `{"status":"success","query":"...","lang":"de","format":"json","count":N,"data":[Tile...],"items":[...]}`
-  - Tile schema: `id`, `name`, `language`, `tags`, `title`, `html_teaser`, `summary`, `link`, `type` ("doc"|"link"), `content_file`, `visible`, `accent_color`, `background`, `sort_order`, `created_at`, `updated_at`, `score` (0..1 relevance).
-- **TOON** (`?format=toon` or `Accept: text/x-toon`): Tabular plain-text output (commented header line + one row per card). Optimized for low token usage in LLM prompts.
+- **JSON**: `{"status":"success","query":"...","lang":"de","format":"json","count":N,"tiles":[TileDTO...]}`
+  - TileDTO schema: `index`, `id`, `name`, `lang`, `title`, `tags`, `type` ("doc"|"link" or "doc(size)"), `summary`, `content`, `content_file`, `link`, `date`, `score` (0..1 relevance float), `accent_color`, `background`.
+  - *(For non-admin frontend requests with header `X-Purpose: frontend`, internal keys like `id`, `summary`, `tags`, `score`, and `index` are omitted).*
+- **TOON** (`?format=toon` or `Accept: text/x-toon`): Tabular plain-text output (commented header line + one card block per card). Optimized for low token usage in LLM prompts.
 
 ## Other Public Endpoints
-- `GET /api/tiles/:name?lang=de`: Single card by name (falls back to another language if requested language is unavailable).
-- `GET /api/tiles/:name/versions`: Available language versions for a card → `{"status","name","versions":[TileSummary...]}`.
+- `GET /api/tiles/:name?lang=de`: Single card by name → `{"status":"success","tile":{...}}` (falls back to another language if requested language is unavailable).
+- `GET /api/tiles/:name/versions`: Available language versions for a card → `{"status":"success","name":"...","versions":[TileSummary...]}`.
 - `GET /api/healthz`: Service health check → `{"status":"ok","db":"ok","time":"..."}` (HTTP 503 if database down).
 - `GET /llms.txt`: This documentation file.
 

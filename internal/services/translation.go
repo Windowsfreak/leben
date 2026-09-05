@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/windowsfreak/leben/internal/config"
@@ -76,24 +77,38 @@ func (s *TranslationService) runTranslateTask(ctx context.Context, taskID, name,
 	supportedMap := LoadSupportedLanguages(s.cfg.Server.WebDir)
 
 	var targets []string
-	if targetLang == "all" || targetLang == "missing" {
+	switch strings.ToLower(strings.TrimSpace(targetLang)) {
+	case "all":
+		for code := range supportedMap {
+			if code != sourceTile.Language {
+				targets = append(targets, code)
+			}
+		}
+		sort.Strings(targets)
+	case "missing":
 		statusMap, err := s.tileSvc.GetTranslationStatus(ctx, name)
 		if err == nil && statusMap[name] != nil && len(statusMap[name].MissingLanguages) > 0 {
 			targets = statusMap[name].MissingLanguages
-		} else {
-			for code := range supportedMap {
-				if code != sourceTile.Language {
+			sort.Strings(targets)
+		}
+	case "stale":
+		statusMap, err := s.tileSvc.GetTranslationStatus(ctx, name)
+		if err == nil && statusMap[name] != nil {
+			for code, item := range statusMap[name].Languages {
+				if item.Status == "stale" && code != sourceTile.Language {
 					targets = append(targets, code)
 				}
 			}
+			targets = append(targets, statusMap[name].MissingLanguages...)
+			sort.Strings(targets)
 		}
-	} else {
-		targetLang = strings.ToLower(strings.TrimSpace(targetLang))
-		if targetLang == sourceTile.Language {
-			s.taskMgr.FailTask(taskID, fmt.Errorf("target language '%s' is identical to source language", targetLang))
+	default:
+		t := strings.ToLower(strings.TrimSpace(targetLang))
+		if t == sourceTile.Language {
+			s.taskMgr.FailTask(taskID, fmt.Errorf("target language '%s' is identical to source language", t))
 			return
 		}
-		targets = []string{targetLang}
+		targets = []string{t}
 	}
 
 	if len(targets) == 0 {
