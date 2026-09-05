@@ -191,6 +191,19 @@ func (s *TranslationService) runTranslateTask(ctx context.Context, taskID, name,
 		if strings.TrimSpace(tagsStr) == "" {
 			tagsStr = sourceTile.Tags
 		}
+		// Sanitize tags: remove literal quotes and backticks
+		tagItems := strings.Split(tagsStr, ",")
+		cleanedTags := make([]string, 0, len(tagItems))
+		for _, tag := range tagItems {
+			tag = strings.TrimSpace(tag)
+			tag = strings.Trim(tag, "\"`'“”„”")
+			tag = strings.ReplaceAll(tag, "\"", "")
+			tag = strings.TrimSpace(tag)
+			if tag != "" {
+				cleanedTags = append(cleanedTags, tag)
+			}
+		}
+		tagsStr = strings.Join(cleanedTags, ", ")
 		summary := transMeta.Summary
 		if summary == "" {
 			summary = sourceTile.Summary
@@ -261,7 +274,8 @@ Respond ONLY with a valid JSON object (no markdown formatting, no backticks):
   "title": "Translated Title",
   "summary": "Translated summary...",
   "tags": "tag1, tag2"
-}`, strings.ToUpper(sourceTile.Language), targetFullName)
+}
+Note for tags: Provide a clean comma-separated list of keywords. Never surround words or multi-word phrases with quotation marks.`, strings.ToUpper(sourceTile.Language), targetFullName)
 
 	metaUser := fmt.Sprintf("Source Title: %s\nSource Tags: %s\nSource Summary: %s",
 		sourceTile.Title, sourceTile.Tags, sourceTile.Summary)

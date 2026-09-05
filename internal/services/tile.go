@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -15,6 +16,8 @@ import (
 	"github.com/windowsfreak/leben/internal/db"
 	"github.com/windowsfreak/leben/internal/models"
 )
+
+var ErrTileNotFound = errors.New("tile not found")
 
 type TileService struct {
 	cfg      *config.Config
@@ -71,7 +74,7 @@ func (s *TileService) SearchTiles(ctx context.Context, prefLang, queryStr string
 				   visible, secret, accent_color, background, embedding, sort_order, created_at, updated_at, distance
 			FROM resolved_tiles 
 			WHERE rn = 1 
-			ORDER BY distance ASC 
+			ORDER BY distance ASC, sort_order ASC, id ASC 
 			LIMIT $5 OFFSET $6
 		`
 		rows, err := s.database.QueryContext(ctx, sqlQuery, vecStr, prefLang, showInvisible, refCodesStr, dbLimit, offset)
@@ -150,7 +153,7 @@ func (s *TileService) SearchTiles(ctx context.Context, prefLang, queryStr string
 						   CASE WHEN language = $1 THEN 1 
 								ELSE 2 
 						   END,
-						   sort_order ASC, created_at DESC
+						   sort_order ASC, created_at DESC, id ASC
 				   ) as rn
 			FROM tiles
 			WHERE ($2 = true OR (visible = true AND (secret = '' OR secret = ANY(string_to_array($3, ',')))))
@@ -160,7 +163,7 @@ func (s *TileService) SearchTiles(ctx context.Context, prefLang, queryStr string
 			   visible, secret, accent_color, background, embedding, sort_order, created_at, updated_at
 		FROM resolved_tiles 
 		WHERE rn = 1 
-		ORDER BY sort_order ASC, created_at DESC
+		ORDER BY sort_order ASC, created_at DESC, id ASC
 		LIMIT $4 OFFSET $5
 	`
 	rows, err := s.database.QueryContext(ctx, sqlQuery, prefLang, showInvisible, refCodesStr, dbLimit, offset)
@@ -217,7 +220,7 @@ func (s *TileService) GetSimilarTiles(ctx context.Context, name, prefLang string
 			   visible, secret, accent_color, background, embedding, sort_order, created_at, updated_at, distance
 		FROM resolved_tiles 
 		WHERE rn = 1 AND (SELECT embedding FROM source_tile) IS NOT NULL
-		ORDER BY distance ASC 
+		ORDER BY distance ASC, sort_order ASC, id ASC 
 		LIMIT $5 OFFSET $6
 	`
 	rows, err := s.database.QueryContext(ctx, sqlQuery, name, prefLang, showInvisible, refCodesStr, dbLimit, offset)
@@ -300,6 +303,9 @@ func (s *TileService) GetTileExact(ctx context.Context, name, lang string, refCo
 	row := s.database.QueryRowContext(ctx, sqlQuery, name, lang, showInvisible, refCodesStr)
 	tile, err := db.ScanTile(row)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%w: '%s' (lang: %s)", ErrTileNotFound, name, lang)
+		}
 		return nil, err
 	}
 
@@ -334,6 +340,9 @@ func (s *TileService) GetTile(ctx context.Context, name, lang string, refCodes [
 	}
 
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("%w: '%s'", ErrTileNotFound, name)
+		}
 		return nil, err
 	}
 

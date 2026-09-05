@@ -232,8 +232,12 @@ func (r *Router) handleAdminGetConfig(w http.ResponseWriter, req *http.Request) 
 // handleOAuthProtectedResource implements RFC 9728 OAuth 2.0 Protected Resource Metadata
 func (r *Router) handleOAuthProtectedResource(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
 	base := r.publicBaseURL(req)
+	resourceURI := base + "/api/mcp"
+	if strings.HasSuffix(req.URL.Path, "/api/admin/mcp") {
+		resourceURI = base + "/api/admin/mcp"
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"resource": base + "/api/mcp",
+		"resource": resourceURI,
 		"authorization_servers": []string{
 			base,
 		},

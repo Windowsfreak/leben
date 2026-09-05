@@ -127,6 +127,15 @@ func (db *DB) Migrate() error {
 		log.Printf("Warning: HNSW index creation issue (non-fatal): %v", err)
 	}
 
+	// Clean up any literal quote characters that were serialized into tags arrays
+	if _, err := db.Exec(`UPDATE tiles SET tags = (
+		SELECT coalesce(array_agg(trim(both '"' from elem)), '{}')
+		FROM unnest(tags) as elem
+		WHERE trim(both '"' from elem) != ''
+	) WHERE tags::text LIKE '%"%';`); err != nil {
+		log.Printf("Warning: tags quote cleanup issue (non-fatal): %v", err)
+	}
+
 	return nil
 }
 
@@ -164,6 +173,9 @@ func TagsToPostgres(tagsStr string) string {
 	cleaned := make([]string, 0, len(parts))
 	for _, p := range parts {
 		p = strings.TrimSpace(p)
+		p = strings.Trim(p, "\"")
+		p = strings.ReplaceAll(p, "\"", "")
+		p = strings.TrimSpace(p)
 		if p != "" {
 			cleaned = append(cleaned, p)
 		}
@@ -179,6 +191,9 @@ func PostgresToTags(s string) string {
 	parts := strings.Split(s, ",")
 	cleaned := make([]string, 0, len(parts))
 	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		p = strings.Trim(p, "\"")
+		p = strings.ReplaceAll(p, "\\\"", "\"")
 		p = strings.TrimSpace(p)
 		if p != "" {
 			cleaned = append(cleaned, p)

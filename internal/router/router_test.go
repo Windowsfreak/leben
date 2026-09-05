@@ -16,6 +16,7 @@ import (
 
 	"github.com/windowsfreak/leben/internal/auth"
 	"github.com/windowsfreak/leben/internal/config"
+	"github.com/windowsfreak/leben/internal/mcp"
 	"github.com/windowsfreak/leben/internal/models"
 )
 
@@ -421,6 +422,63 @@ func TestOAuthDiscoveryEndpoints(t *testing.T) {
 		if m["device_authorization_endpoint"] != "https://leben.8bj.de/api/auth/device" {
 			t.Errorf("expected device_authorization_endpoint https://leben.8bj.de/api/auth/device, got %v", m["device_authorization_endpoint"])
 		}
+	}
+
+	// 3. RFC 9728 Admin Protected Resource Metadata
+	adminMetaPaths := []string{
+		"/.well-known/oauth-protected-resource/api/admin/mcp",
+		"/api/.well-known/oauth-protected-resource/api/admin/mcp",
+	}
+	for _, p := range adminMetaPaths {
+		req := httptest.NewRequest(http.MethodGet, p, nil)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("expected 200 for %s, got %d", p, rec.Code)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &m); err != nil {
+			t.Fatalf("failed to decode JSON for %s: %v", p, err)
+		}
+		if m["resource"] != "https://leben.8bj.de/api/admin/mcp" {
+			t.Errorf("expected resource https://leben.8bj.de/api/admin/mcp, got %v", m["resource"])
+		}
+	}
+}
+
+func TestMCPAdminRouterEndpoints(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			WebDir:    t.TempDir(),
+			PublicURL: "https://leben.8bj.de",
+		},
+	}
+	mcpServer := mcp.NewServer(cfg, nil, nil, nil, nil, nil)
+	r := New(cfg, nil, nil, nil, nil, nil, nil, mcpServer)
+
+	// POST /api/admin/mcp with tools/list returns all tools even when unauthenticated
+	body := `{"jsonrpc":"2.0","id":100,"method":"tools/list"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/mcp", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+
+	var resp models.MCPResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	resMap, ok := resp.Result.(map[string]any)
+	if !ok {
+		t.Fatalf("expected result map, got %T", resp.Result)
+	}
+	tools, ok := resMap["tools"].([]any)
+	if !ok || len(tools) < 20 {
+		t.Fatalf("expected all 24 tools on /api/admin/mcp, got %d", len(tools))
 	}
 }
 

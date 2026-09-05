@@ -2,12 +2,15 @@ package mcp
 
 import (
 	"context"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -420,7 +423,9 @@ func (s *Server) HandleSSE(w http.ResponseWriter, r *http.Request, baseURL strin
 }
 
 // HandleMessage manages modern Streamable HTTP and HTTP POST JSON-RPC 2.0 calls
-func (s *Server) HandleMessage(w http.ResponseWriter, r *http.Request, isAdmin bool, baseURL string) {
+func (s *Server) HandleMessage(w http.ResponseWriter, r *http.Request, isAdmin bool, baseURL string, forceAll ...bool) {
+	forceAllTools := len(forceAll) > 0 && forceAll[0]
+
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id, WWW-Authenticate")
 
@@ -434,7 +439,11 @@ func (s *Server) HandleMessage(w http.ResponseWriter, r *http.Request, isAdmin b
 	w.Header().Set("Mcp-Session-Id", sessionID)
 
 	if !isAdmin {
-		w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer resource_metadata="%s/.well-known/oauth-protected-resource/api/mcp"`, strings.TrimRight(baseURL, "/")))
+		metadataPath := "/.well-known/oauth-protected-resource/api/mcp"
+		if forceAllTools {
+			metadataPath = "/.well-known/oauth-protected-resource/api/admin/mcp"
+		}
+		w.Header().Set("WWW-Authenticate", fmt.Sprintf(`Bearer resource_metadata="%s%s"`, strings.TrimRight(baseURL, "/"), metadataPath))
 	}
 
 	var req models.MCPRequest
@@ -454,7 +463,7 @@ func (s *Server) HandleMessage(w http.ResponseWriter, r *http.Request, isAdmin b
 		return
 	}
 
-	resp := s.ExecuteMethod(r.Context(), req, isAdmin)
+	resp := s.ExecuteMethod(r.Context(), req, isAdmin, forceAllTools)
 
 	// Send to session SSE queue if an SSE listener exists for this session
 	if chVal, ok := s.sessions.Load(sessionID); ok {
@@ -483,7 +492,12 @@ func (s *Server) HandleMessage(w http.ResponseWriter, r *http.Request, isAdmin b
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
-func (s *Server) ExecuteMethod(ctx context.Context, req models.MCPRequest, isAdmin bool) models.MCPResponse {
+func (s *Server) ExecuteMethod(ctx context.Context, req models.MCPRequest, isAdmin bool, forceAll ...bool) models.MCPResponse {
+	forceAllTools := false
+	if len(forceAll) > 0 && forceAll[0] {
+		forceAllTools = true
+	}
+
 	switch req.Method {
 	case "initialize":
 		return models.MCPResponse{
@@ -516,7 +530,7 @@ func (s *Server) ExecuteMethod(ctx context.Context, req models.MCPRequest, isAdm
 			JSONRPC: "2.0",
 			ID:      req.ID,
 			Result: map[string]any{
-				"tools": s.GetTools(isAdmin),
+				"tools": s.GetTools(isAdmin || forceAllTools),
 			},
 		}
 
@@ -597,11 +611,11 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]a
 		if lang == "" {
 			lang = "de"
 		}
-		limit := getInt(args, "limit")
-		if limit <= 0 {
-			limit = 20
+		limit := getIntOpt(args, "limit", 20)
+		if limit < 0 {
+			limit = 0
 		}
-		offset := getInt(args, "offset")
+		offset := getIntOpt(args, "offset", 0)
 
 		if similar != "" {
 			return s.tileSvc.GetSimilarTiles(ctx, similar, lang, nil, isAdmin, limit, offset)
@@ -614,11 +628,11 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]a
 		if lang == "" {
 			lang = "de"
 		}
-		limit := getInt(args, "limit")
-		if limit <= 0 {
-			limit = 5
+		limit := getIntOpt(args, "limit", 5)
+		if limit < 0 {
+			limit = 0
 		}
-		offset := getInt(args, "offset")
+		offset := getIntOpt(args, "offset", 0)
 		return s.tileSvc.GetSimilarTiles(ctx, tName, lang, nil, isAdmin, limit, offset)
 
 	case "get_tile":
@@ -629,22 +643,46 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]a
 		}
 		tile, err := s.tileSvc.GetTile(ctx, tName, lang, nil, isAdmin)
 		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) || errors.Is(err, services.ErrTileNotFound) || strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "no rows") {
+				return map[string]any{
+					"status":  "error",
+					"message": fmt.Sprintf("Tile '%s' not found", tName),
+				}, nil
+			}
 			return nil, err
 		}
 		if getBool(args, "include_content", false) && tile.ContentFile != "" {
 			fPath := filepath.Join(s.cfg.Server.WebDir, "content", filepath.Clean(tile.ContentFile))
 			if b, readErr := os.ReadFile(fPath); readErr == nil {
 				return map[string]any{
+					"status":  "success",
 					"tile":    tile,
 					"content": string(b),
 				}, nil
 			}
 		}
-		return tile, nil
+		return map[string]any{
+			"status": "success",
+			"tile":   tile,
+		}, nil
 
 	case "get_tile_versions":
 		tName := getString(args, "name")
-		return s.tileSvc.GetTileInfo(ctx, tName, nil, isAdmin)
+		versions, err := s.tileSvc.GetTileInfo(ctx, tName, nil, isAdmin)
+		if err != nil {
+			return nil, err
+		}
+		if len(versions) == 0 {
+			return map[string]any{
+				"status":  "error",
+				"message": fmt.Sprintf("Tile '%s' not found", tName),
+			}, nil
+		}
+		return map[string]any{
+			"status":   "success",
+			"name":     tName,
+			"versions": versions,
+		}, nil
 
 	case "check_auth":
 		if isAdmin {
@@ -1141,8 +1179,8 @@ Respond ONLY with a valid, raw JSON object (no markdown code blocks, no backtick
 }
 
 // Helpers for safe argument extraction from map[string]any
-func getInt(args map[string]any, key string) int {
-	if val, ok := args[key]; ok {
+func getIntOpt(args map[string]any, key string, defaultVal int) int {
+	if val, ok := args[key]; ok && val != nil {
 		switch v := val.(type) {
 		case float64:
 			return int(v)
@@ -1150,9 +1188,17 @@ func getInt(args map[string]any, key string) int {
 			return v
 		case int64:
 			return int(v)
+		case string:
+			if i, err := strconv.Atoi(v); err == nil {
+				return i
+			}
 		}
 	}
-	return 0
+	return defaultVal
+}
+
+func getInt(args map[string]any, key string) int {
+	return getIntOpt(args, key, 0)
 }
 
 func getString(args map[string]any, key string) string {

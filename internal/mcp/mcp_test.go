@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/windowsfreak/leben/internal/config"
+	"github.com/windowsfreak/leben/internal/db"
 	"github.com/windowsfreak/leben/internal/models"
 )
 
@@ -313,5 +314,89 @@ func TestHandleSSEEndpointBugFix(t *testing.T) {
 	body := rec.Body.String()
 	if !strings.Contains(body, "event: endpoint\ndata: https://leben.8bj.de/api/mcp?action=message&sessionId=") {
 		t.Errorf("expected SSE endpoint to contain /api/mcp, got: %s", body)
+	}
+}
+
+func TestMCPAdminEndpointForceShowsAllTools(t *testing.T) {
+	s := NewServer(&config.Config{}, nil, nil, nil, nil, nil)
+
+	// tools/list on /api/admin/mcp unauthenticated
+	body := `{"jsonrpc":"2.0","id":10,"method":"tools/list"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/admin/mcp", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	s.HandleMessage(rec, req, false, "https://leben.8bj.de", true)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Header().Get("WWW-Authenticate"), "oauth-protected-resource/api/admin/mcp") {
+		t.Errorf("expected admin metadata URI in WWW-Authenticate, got: %s", rec.Header().Get("WWW-Authenticate"))
+	}
+
+	var resp models.MCPResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	resMap, ok := resp.Result.(map[string]any)
+	if !ok {
+		t.Fatalf("expected result map, got %T", resp.Result)
+	}
+	tools, ok := resMap["tools"].([]any)
+	if !ok || len(tools) < 20 {
+		t.Fatalf("expected all 24 tools on /api/admin/mcp, got %d", len(tools))
+	}
+
+	// Calling admin tool on /api/admin/mcp unauthenticated must fail
+	callBody := `{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"admin_list_tiles","arguments":{}}}`
+	callReq := httptest.NewRequest(http.MethodPost, "/api/admin/mcp", bytes.NewBufferString(callBody))
+	callReq.Header.Set("Content-Type", "application/json")
+	callRec := httptest.NewRecorder()
+
+	s.HandleMessage(callRec, callReq, false, "https://leben.8bj.de", true)
+	var callResp models.MCPResponse
+	_ = json.Unmarshal(callRec.Body.Bytes(), &callResp)
+	callResult, _ := callResp.Result.(map[string]any)
+	if callResult["isError"] != true {
+		t.Errorf("expected isError=true for unauthenticated admin tool call, got %v", callResult)
+	}
+}
+
+func TestMCPLimitZeroHandling(t *testing.T) {
+	// 1. Unset limit -> default 20
+	argsUnset := map[string]any{"q": "test"}
+	if l := getIntOpt(argsUnset, "limit", 20); l != 20 {
+		t.Errorf("expected 20 for unset limit, got %d", l)
+	}
+
+	// 2. Explicit 0 -> returns 0 (which means all)
+	argsZero := map[string]any{"limit": 0}
+	if l := getIntOpt(argsZero, "limit", 20); l != 0 {
+		t.Errorf("expected 0 for explicit limit=0, got %d", l)
+	}
+
+	// 3. Explicit float64(0) (JSON unmarshal default)
+	argsFloatZero := map[string]any{"limit": float64(0)}
+	if l := getIntOpt(argsFloatZero, "limit", 20); l != 0 {
+		t.Errorf("expected 0 for float64(0) limit, got %d", l)
+	}
+}
+
+func TestPostgresToTagsAndTagsToPostgresQuotes(t *testing.T) {
+	// Simulating PostgreSQL array serialization containing multi-word tag with space
+	pgArr := `{finance,crypto,investments,"passive income"}`
+	parsed := db.PostgresToTags(pgArr)
+	expected := "finance, crypto, investments, passive income"
+	if parsed != expected {
+		t.Errorf("expected %q, got %q", expected, parsed)
+	}
+
+	// Simulating tags with literal quotes converted to Postgres array
+	rawTags := `finance, crypto, investments, "passive income"`
+	saved := db.TagsToPostgres(rawTags)
+	expectedPg := "{finance,crypto,investments,passive income}"
+	if saved != expectedPg {
+		t.Errorf("expected %q, got %q", expectedPg, saved)
 	}
 }

@@ -233,6 +233,11 @@ JSON-RPC 2.0 endpoint for MCP clients. Supports **MCP Streamable HTTP** (modern 
 - Header: `Mcp-Session-Id` (optional session identifier, returned on all responses).
 - Streaming: Send `Accept: text/event-stream` to receive JSON-RPC responses via chunked SSE events.
 
+### `POST /api/admin/mcp` (Admin MCP Endpoint)
+- Force-exposes all 24 tools in `tools/list` upfront even if initially unauthenticated, so LLM agents discover administrative capabilities.
+- Invoking admin tools via `tools/call` still enforces Bearer token authentication (`Authorization: Bearer lbn_...`).
+- Discovery: `GET /.well-known/oauth-protected-resource/api/admin/mcp`.
+
 ### `GET /api/mcp?action=sse` (or `Accept: text/event-stream`)
 - MCP Server-Sent Events stream; emits endpoint URL (`/api/mcp?action=message&sessionId=...`) and keepalives.
 

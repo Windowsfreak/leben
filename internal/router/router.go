@@ -2,7 +2,9 @@ package router
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -98,14 +100,21 @@ func (r *Router) setupRoutes() {
 	r.router.GET("/api/mcp", r.handleMCPGet)
 	r.router.POST("/api/mcp", r.handleMCPPost)
 
+	// Admin MCP Endpoint: force-exposes all tools in tools/list upfront,
+	// while still requiring admin authorization for write/admin execution.
+	r.router.GET("/api/admin/mcp", r.handleMCPAdminGet)
+	r.router.POST("/api/admin/mcp", r.handleMCPAdminPost)
+
 	// OAuth 2.0 Discovery Metadata (RFC 9728 & RFC 8414)
 	r.router.GET("/.well-known/oauth-protected-resource", r.handleOAuthProtectedResource)
 	r.router.GET("/.well-known/oauth-protected-resource/api/mcp", r.handleOAuthProtectedResource)
+	r.router.GET("/.well-known/oauth-protected-resource/api/admin/mcp", r.handleOAuthProtectedResource)
 	r.router.GET("/.well-known/oauth-authorization-server", r.handleOAuthAuthServer)
 
 	// Aliases under /api/ in case reverse proxy rules forward only /api/*
 	r.router.GET("/api/.well-known/oauth-protected-resource", r.handleOAuthProtectedResource)
 	r.router.GET("/api/.well-known/oauth-protected-resource/api/mcp", r.handleOAuthProtectedResource)
+	r.router.GET("/api/.well-known/oauth-protected-resource/api/admin/mcp", r.handleOAuthProtectedResource)
 	r.router.GET("/api/.well-known/oauth-authorization-server", r.handleOAuthAuthServer)
 
 
@@ -375,7 +384,11 @@ func (r *Router) handleGetTileByName(w http.ResponseWriter, req *http.Request, p
 
 	tile, err := r.tileSvc.GetTile(req.Context(), name, lang, refCodes, showInvisible)
 	if err != nil {
-		writeError(w, http.StatusNotFound, fmt.Sprintf("Tile '%s' not found: %v", name, err))
+		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, services.ErrTileNotFound) || strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "no rows") {
+			writeError(w, http.StatusNotFound, fmt.Sprintf("Tile '%s' not found", name))
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
@@ -417,6 +430,22 @@ func (r *Router) handleMCPPost(w http.ResponseWriter, req *http.Request, _ httpr
 	isAdmin := r.auth.IsAdmin(req)
 	base := r.publicBaseURL(req)
 	r.mcpServer.HandleMessage(w, req, isAdmin, base)
+}
+
+func (r *Router) handleMCPAdminGet(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+	isAdmin := r.auth.IsAdmin(req)
+	base := r.publicBaseURL(req)
+	if req.URL.Query().Get("action") == "sse" || req.Header.Get("Accept") == "text/event-stream" {
+		r.mcpServer.HandleSSE(w, req, base)
+		return
+	}
+	r.mcpServer.HandleMessage(w, req, isAdmin, base, true)
+}
+
+func (r *Router) handleMCPAdminPost(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+	isAdmin := r.auth.IsAdmin(req)
+	base := r.publicBaseURL(req)
+	r.mcpServer.HandleMessage(w, req, isAdmin, base, true)
 }
 
 // handleAdminLogin verifies the admin password and issues an expiring browser
