@@ -404,7 +404,7 @@ function getTileBgObserver() {
 }
 
 // Apply custom background and modular theme override classes to a tile element
-function applyTileTheme(tileElement, backgroundValue) {
+function applyTileTheme(tileElement, backgroundValue, lazy = false) {
     if (!tileElement) return;
 
     // Remove any existing theme-* classes
@@ -423,16 +423,18 @@ function applyTileTheme(tileElement, backgroundValue) {
     const cleanBackground = trimmed.replace(/\/\*.*?\*\//g, '').trim();
 
     if (cleanBackground) {
-        if (cleanBackground.includes('url(')) {
+        if (lazy && cleanBackground.includes('url(')) {
             const observer = getTileBgObserver();
             if (observer) {
                 tileElement.dataset.bg = cleanBackground;
                 observer.observe(tileElement);
             } else {
                 tileElement.style.background = cleanBackground;
+                delete tileElement.dataset.bg;
             }
         } else {
             tileElement.style.background = cleanBackground;
+            delete tileElement.dataset.bg;
         }
     } else {
         tileElement.style.background = '';
@@ -475,8 +477,8 @@ function createTileElement(tile, isMini = false) {
     // Set custom CSS property for theme accent color from database
     tileDiv.style.setProperty('--tile-color', tile.accent_color || '#fbbf24');
 
-    // Set custom background style & theme class if specified
-    applyTileTheme(tileDiv, tile.background);
+    // Set custom background style & theme class if specified (lazy-load for main grid, immediate for mini/similar)
+    applyTileTheme(tileDiv, tile.background, !isMini);
 
     // Opacity overlay for invisible tiles in admin mode
     if (!tile.visible) {
@@ -903,22 +905,8 @@ function loadSimilarTiles(tileName, targetBody) {
                 grid.className = 'see-also-grid';
                 
                 res.tiles.forEach(item => {
-                    // Create the tile element using the same builder function as the main page
                     const card = createTileElement(item, true);
-                    
-                    // Clone the element to remove standard click listeners, then apply modal transition logic
-                    const cleanCard = card.cloneNode(true);
-                    cleanCard.style.setProperty('--tile-color', item.accent_color || '#fbbf24');
-                    
-                    cleanCard.addEventListener('click', () => {
-                        if (item.type === 'link') {
-                            if (item.link) window.open(item.link, '_blank');
-                        } else {
-                            // Replace currently open lightbox tile and update URL history state
-                            openLightbox(item, true);
-                        }
-                    });
-                    grid.appendChild(cleanCard);
+                    grid.appendChild(card);
                 });
                 
                 section.appendChild(grid);
