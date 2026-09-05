@@ -77,6 +77,7 @@ func (a *Auth) Middleware(next http.HandlerFunc) http.HandlerFunc {
 		token := ExtractToken(r)
 		if !a.VerifyToken(token) {
 			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token"`)
 			w.WriteHeader(http.StatusUnauthorized)
 			w.Write([]byte(`{"status":"error","message":"Unauthorized. Admin token required."}`))
 			return

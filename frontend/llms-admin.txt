@@ -218,14 +218,22 @@ Article bodies are stored as HTML partials in `/content/` and referenced by a ti
 
 ## 8. Model Context Protocol (`/api/mcp`)
 
-JSON-RPC 2.0 endpoint for MCP clients. Requires Bearer authentication.
+JSON-RPC 2.0 endpoint for MCP clients. Supports **MCP Streamable HTTP** (modern standard) as well as legacy Server-Sent Events (SSE).
+
+### Authentication & Permissions
+- **Public access (anonymous)**: `initialize`, `ping`, and read-only tools (`search_tiles`, `get_similar_tiles`, `get_tile`, `get_tile_versions`, `check_auth`) do not require a token.
+- **Admin operations**: Admin tools (`translate_tile`, `list_tasks`, `cancel_task`, `save_content_file`, ...) require Bearer authentication (`Authorization: Bearer lbn_...`).
+- **Discovery**: Unauthenticated requests receive RFC 9728 metadata pointers via `WWW-Authenticate: Bearer resource_metadata=".../.well-known/oauth-protected-resource/api/mcp"`.
+- **OAuth 2.0 Metadata Endpoints**:
+  - `GET /.well-known/oauth-protected-resource/api/mcp` (RFC 9728 Protected Resource Metadata)
+  - `GET /.well-known/oauth-authorization-server` (RFC 8414 Authorization Server Metadata for RFC 8628 device flow)
+
+### `POST /api/mcp` (Streamable HTTP)
+- Methods: `initialize`, `notifications/initialized`, `ping`, `tools/list`, `tools/call`.
+- Header: `Mcp-Session-Id` (optional session identifier, returned on all responses).
+- Streaming: Send `Accept: text/event-stream` to receive JSON-RPC responses via chunked SSE events.
 
 ### `GET /api/mcp?action=sse` (or `Accept: text/event-stream`)
 - MCP Server-Sent Events stream; emits endpoint URL (`/api/mcp?action=message&sessionId=...`) and keepalives.
-
-### `POST /api/mcp` and `POST /api/mcp?action=message&sessionId=...`
-- Protocol version `2024-11-05`, server `leben-mcp` v1.0.0.
-- Methods: `initialize`, `tools/list`, `tools/call`.
-- Available Tools: `search_tiles`, `get_similar_tiles`, `get_tile`, `translate_tile`, `get_task_status`, `cancel_task`, `save_content_file`.
 
 *Tip: For local development, prefer the standalone TypeScript MCP server in `mcp-server/` (stdio transport, handles RFC 8628 device flow automatically and stores tokens in OS keychain).*

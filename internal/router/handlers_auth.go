@@ -228,3 +228,39 @@ func (r *Router) handleAdminGetConfig(w http.ResponseWriter, req *http.Request) 
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"status": "success", "config": js})
 }
+
+// handleOAuthProtectedResource implements RFC 9728 OAuth 2.0 Protected Resource Metadata
+func (r *Router) handleOAuthProtectedResource(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+	base := r.publicBaseURL(req)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"resource": base + "/api/mcp",
+		"authorization_servers": []string{
+			base,
+		},
+		"scopes_supported": []string{
+			"admin",
+			"read",
+		},
+		"bearer_methods_supported": []string{
+			"header",
+		},
+		"resource_documentation": base + "/llms-admin.txt",
+	})
+}
+
+// handleOAuthAuthServer implements RFC 8414 OAuth 2.0 Authorization Server Metadata
+func (r *Router) handleOAuthAuthServer(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+	base := r.publicBaseURL(req)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"issuer":                                base,
+		"device_authorization_endpoint":         base + "/api/auth/device",
+		"token_endpoint":                        base + "/api/auth/device/token",
+		"token_endpoint_auth_methods_supported": []string{"none"},
+		"grant_types_supported": []string{
+			"urn:ietf:params:oauth:grant-type:device_code",
+		},
+		"response_types_supported": []string{},
+		"service_documentation":    base + "/llms-admin.txt",
+	})
+}
+

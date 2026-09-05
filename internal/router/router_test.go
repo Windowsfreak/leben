@@ -364,3 +364,63 @@ func TestRichTileDTOSerialization(t *testing.T) {
 		t.Errorf("language must not be serialized in TileDTO (use lang)")
 	}
 }
+
+func TestOAuthDiscoveryEndpoints(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			WebDir:    t.TempDir(),
+			PublicURL: "https://leben.8bj.de",
+		},
+	}
+	r := New(cfg, nil, nil, nil, nil, nil, nil, nil)
+
+	// 1. RFC 9728 Protected Resource Metadata
+	paths := []string{
+		"/.well-known/oauth-protected-resource",
+		"/.well-known/oauth-protected-resource/api/mcp",
+		"/api/.well-known/oauth-protected-resource",
+		"/api/.well-known/oauth-protected-resource/api/mcp",
+	}
+	for _, p := range paths {
+		req := httptest.NewRequest(http.MethodGet, p, nil)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("expected 200 for %s, got %d", p, rec.Code)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &m); err != nil {
+			t.Fatalf("failed to decode JSON for %s: %v", p, err)
+		}
+		if m["resource"] != "https://leben.8bj.de/api/mcp" {
+			t.Errorf("expected resource https://leben.8bj.de/api/mcp, got %v", m["resource"])
+		}
+	}
+
+	// 2. RFC 8414 Authorization Server Metadata
+	authServerPaths := []string{
+		"/.well-known/oauth-authorization-server",
+		"/api/.well-known/oauth-authorization-server",
+	}
+	for _, p := range authServerPaths {
+		req := httptest.NewRequest(http.MethodGet, p, nil)
+		rec := httptest.NewRecorder()
+		r.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("expected 200 for %s, got %d", p, rec.Code)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &m); err != nil {
+			t.Fatalf("failed to decode JSON for %s: %v", p, err)
+		}
+		if m["issuer"] != "https://leben.8bj.de" {
+			t.Errorf("expected issuer https://leben.8bj.de, got %v", m["issuer"])
+		}
+		if m["device_authorization_endpoint"] != "https://leben.8bj.de/api/auth/device" {
+			t.Errorf("expected device_authorization_endpoint https://leben.8bj.de/api/auth/device, got %v", m["device_authorization_endpoint"])
+		}
+	}
+}
+

@@ -1,0 +1,14 @@
+{
+  "resource": "https://leben.8bj.de/api/mcp",
+  "authorization_servers": [
+    "https://leben.8bj.de"
+  ],
+  "scopes_supported": [
+    "admin",
+    "read"
+  ],
+  "bearer_methods_supported": [
+    "header"
+  ],
+  "resource_documentation": "https://leben.8bj.de/llms-admin.txt"
+}

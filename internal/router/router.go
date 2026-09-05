@@ -93,10 +93,21 @@ func (r *Router) setupRoutes() {
 	r.router.POST("/api/auth/device/token", r.handleDeviceToken)
 	r.router.POST("/api/auth/device/authorize", r.handleDeviceAuthorize)
 
-	// MCP Endpoints (auth-protected: exposes write-capable tools).
-	// Lives under /api/ so the production proxy (which routes /api/*) reaches it.
-	r.router.GET("/api/mcp", r.wrapAuth(r.handleMCPGet))
-	r.router.POST("/api/mcp", r.wrapAuth(r.handleMCPPost))
+	// MCP Endpoints: modern Streamable HTTP on POST /api/mcp and SSE on GET /api/mcp.
+	// Tool-level authorization is enforced internally (public read vs admin write).
+	r.router.GET("/api/mcp", r.handleMCPGet)
+	r.router.POST("/api/mcp", r.handleMCPPost)
+
+	// OAuth 2.0 Discovery Metadata (RFC 9728 & RFC 8414)
+	r.router.GET("/.well-known/oauth-protected-resource", r.handleOAuthProtectedResource)
+	r.router.GET("/.well-known/oauth-protected-resource/api/mcp", r.handleOAuthProtectedResource)
+	r.router.GET("/.well-known/oauth-authorization-server", r.handleOAuthAuthServer)
+
+	// Aliases under /api/ in case reverse proxy rules forward only /api/*
+	r.router.GET("/api/.well-known/oauth-protected-resource", r.handleOAuthProtectedResource)
+	r.router.GET("/api/.well-known/oauth-protected-resource/api/mcp", r.handleOAuthProtectedResource)
+	r.router.GET("/api/.well-known/oauth-authorization-server", r.handleOAuthAuthServer)
+
 
 	// Browser login (issues an HttpOnly session cookie) & logout. Logout is
 	// intentionally unwrapped: it only revokes the credential the caller
@@ -392,16 +403,20 @@ func (r *Router) handleGetTileVersions(w http.ResponseWriter, req *http.Request,
 	})
 }
 
-func (r *Router) handleMCPGet(w http.ResponseWriter, req *http.Request) {
+func (r *Router) handleMCPGet(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+	isAdmin := r.auth.IsAdmin(req)
+	base := r.publicBaseURL(req)
 	if req.URL.Query().Get("action") == "sse" || req.Header.Get("Accept") == "text/event-stream" {
-		r.mcpServer.HandleSSE(w, req)
+		r.mcpServer.HandleSSE(w, req, base)
 		return
 	}
-	r.mcpServer.HandleMessage(w, req)
+	r.mcpServer.HandleMessage(w, req, isAdmin, base)
 }
 
-func (r *Router) handleMCPPost(w http.ResponseWriter, req *http.Request) {
-	r.mcpServer.HandleMessage(w, req)
+func (r *Router) handleMCPPost(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+	isAdmin := r.auth.IsAdmin(req)
+	base := r.publicBaseURL(req)
+	r.mcpServer.HandleMessage(w, req, isAdmin, base)
 }
 
 // handleAdminLogin verifies the admin password and issues an expiring browser
@@ -685,31 +700,53 @@ func (r *Router) handleAdminSaveContentFile(w http.ResponseWriter, req *http.Req
 func (r *Router) handleAdminSuggestMeta(w http.ResponseWriter, req *http.Request) {
 	var body struct {
 		Name        string `json:"name"`
+		Language    string `json:"language"`
 		Title       string `json:"title"`
 		ContentFile string `json:"content_file"`
 		HTMLTeaser  string `json:"html_teaser"`
 	}
 	_ = json.NewDecoder(req.Body).Decode(&body)
 
+	lang := strings.ToLower(strings.TrimSpace(body.Language))
+	if lang == "" {
+		if strings.HasSuffix(body.ContentFile, "_en.html") || strings.HasSuffix(body.Name, "_en") {
+			lang = "en"
+		} else {
+			lang = "de"
+		}
+	}
+
 	content := body.HTMLTeaser
 	if body.ContentFile != "" {
-		fPath := filepath.Join(r.cfg.Server.WebDir, "content", body.ContentFile)
-		if bytes, err := os.ReadFile(fPath); err == nil {
+		fPath := filepath.Join(r.cfg.Server.WebDir, "content", filepath.Clean(body.ContentFile))
+		if bytes, err := os.ReadFile(fPath); err == nil && len(bytes) > 0 {
 			content = string(bytes)
 		}
 	}
 
-	systemPrompt := `You are an AI assistant helping organize content tiles. Analyze the content and generate:
-1. A concise, high-level summary (up to 400 words).
-2. 3 to 6 category tags representing main themes.
+	systemPrompt := fmt.Sprintf(`You are an expert semantic search and knowledge-indexing AI for Björn Eberhardt's personal website and portfolio (leben.8bj.de).
 
-Respond ONLY with a valid JSON object matching this structure (no markdown formatting, no backticks):
+Your task is to analyze the provided card title, name, and article content, then generate high-quality metadata consisting of:
+1. "summary": A dense semantic summary specifically engineered for vector search embeddings (vector similarity retrieval).
+2. "tags": 3 to 6 thematic category tags.
+
+STRICT GUIDELINES FOR "summary":
+- Audience: Strictly NOT user-facing. It is fed into an embedding model to match user search queries.
+- Ground Truth: Derives 100%% from the actual text provided. Faithfully capture all key entities, domain concepts, arguments, technical details, keywords, and practical context.
+- High Information Density: Dense, fact-rich prose (~250 to 380 words, matching ~400-500 embedding tokens).
+- ZERO Meta-Talk / Filler: NEVER write phrases like "In this article...", "This card describes...", "The author talks about...", "Here we see...", or "Der Text behandelt...". State the facts, relationships, concepts, and key topics directly.
+- Language & Tone: Write the summary in the target document language (%s). If German, always follow modern German UX rules with lowercase pronouns ("du", "dir", "dein"), authentic, direct, on eye-level, no bureaucratic or formal letter phrasing.
+
+STRICT GUIDELINES FOR "tags":
+- 3 to 6 lowercase thematic keywords representing the core topics, skills, or domains (e.g. ["finanzen", "altersvorsorge", "etf", "steuern"] or ["nixos", "linux", "devops", "cloud"]).
+
+Respond ONLY with a valid, raw JSON object (no markdown code blocks, no backticks, no explanatory text):
 {
-  "summary": "Summary text...",
-  "tags": ["tag1", "tag2"]
-}`
+  "summary": "Direct, fact-dense embedding prose...",
+  "tags": ["tag1", "tag2", "tag3"]
+}`, lang)
 
-	userContent := fmt.Sprintf("Name: %s\nTitle: %s\nContent:\n%s", body.Name, body.Title, content)
+	userContent := fmt.Sprintf("Target Language: %s\nCard Name: %s\nTitle: %s\nContent:\n%s", lang, body.Name, body.Title, content)
 	llmRes, err := r.llmSvc.CallLLM(req.Context(), systemPrompt, userContent)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

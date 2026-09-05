@@ -43,7 +43,7 @@ func main() {
 	llmSvc := services.NewLLMService(cfg)
 	tileSvc := services.NewTileService(cfg, database, ollamaSvc)
 	transSvc := services.NewTranslationService(cfg, database, tileSvc, llmSvc, ollamaSvc, taskMgr)
-	mcpServer := mcp.NewServer(cfg, tileSvc, transSvc, taskMgr)
+	mcpServer := mcp.NewServer(cfg, authModule, tileSvc, transSvc, llmSvc, taskMgr)
 
 	r := router.New(cfg, authModule, database, tileSvc, transSvc, llmSvc, taskMgr, mcpServer)
 
