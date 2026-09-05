@@ -1,66 +1,52 @@
 # Björn Eberhardt – Leben
 
-> Vector search engine and curated content-card API for Björn Eberhardt's portfolio page (leben.8bj.de). Semantic search over profile "tiles" (documents and links) with multilingual support and an LLM-friendly TOON output format.
+> Semantic vector search and content-card API for Björn Eberhardt's portfolio page (leben.8bj.de). Explores profile "tiles" (documents and links) with multilingual support and a token-efficient TOON format.
 
-Base URL: **https://leben.8bj.de** — all paths below are relative to it.
+Base URL: **https://leben.8bj.de**
 
-## Public Search Endpoint: `GET /api/tiles`
+## Public Search: `GET /api/tiles`
 
-Semantic vector search over all visible cards. No authentication required.
+Semantic vector search across all visible cards. No authentication required.
 
-### Query Parameters (with defaults)
-- `q`="": Vector search query string (examples: 'contact', 'vision', 'sport', 'finance', '2025 piano concert')
-- `similar`="": Alternative to `q`: similarity search by card name (e.g. `similar=finance` returns cards semantically similar to the 'finance' card)
-- Omitting both `q` and `similar` lists all cards in curated order (`sort_order`)
-- `offset`=0: Number of cards to skip for pagination
-- `limit`=20: Number of cards to return (set `limit=0` to return all cards)
-- `lang`=de: Language preference. Primary: 'de', 'en'. Translations also exist for fr, es, pl, ro, sq, tr, ru, uk, ar
-- `detail`=snippet: Output detail level
-  - min: metadata (name, tags, type, score, date)
-  - snippet: metadata + short summary cropped to 70 chars
-  - summary: metadata + full high-level summary
-  - full: metadata + full summary + full article body / HTML teaser / link
-- `format`=json: Response format ('json' or 'toon'). TOON can also be selected via HTTP header `Accept: text/x-toon`; the response is then `text/plain` with header `X-LLM-Format: TOON`
-- `crop`=0: Optional character count limit for summary/doc (default 70 when `detail=snippet` and `crop=0`)
+### Query Parameters
+- `q`: Vector search query string (e.g. `q=finance+investments`).
+- `similar`: Card name to find semantically similar cards (e.g. `similar=finance`).
+- *(Omitting both `q` and `similar` returns all cards in curated `sort_order`).*
+- `offset`: Pagination offset (default `0`).
+- `limit`: Number of cards to return (default `20`; `0` returns all).
+- `lang`: Language preference (default `de`): `de`, `en`, `fr`, `es`, `pl`, `ro`, `sq`, `tr`, `ru`, `uk`, `ar`.
+- `detail`: Detail level (default `snippet`).
+  - `min`: metadata only (`name`, `tags`, `type`, `score`, `created_at`)
+  - `snippet`: metadata + short summary cropped to 70 chars
+  - `summary`: metadata + full summary
+  - `full`: metadata + summary + full article body / HTML teaser / link
+- `crop`: Character limit for summary/body (default `70` for `detail=snippet`, `0` = uncropped).
+- `format`: `json` (default) or `toon`. Header `Accept: text/x-toon` also selects TOON.
 
-### Headers
-- `X-Reference: <code1>,<code2>`: Optional. Unlocks cards gated by a `secret` reference code (e.g. shared private links).
-- `Authorization: Bearer <admin_token>`: Optional. Only relevant for admins: makes invisible/secret cards visible in results (see [/llms-admin.txt](https://leben.8bj.de/llms-admin.txt)).
+### Optional Headers
+- `X-Reference: <code1>,<code2>`: Unlocks cards protected by private reference codes.
 
-### JSON Response Shape
-`{"status":"success","query":"...","lang":"de","format":"json","count":3,"data":[Tile...],"items":[TOON items...]}`
-- Each Tile has: `id`, `name`, `language`, `tags` (comma string), `title`, `html_teaser`, `summary`, `link`, `type` ("doc"|"link"), `content_file`, `visible`, `accent_color`, `background`, `sort_order`, `created_at`, `updated_at`, and `score` (0..1; only set when a vector search matched).
-- `items` is the TOON representation of the same result set (see below).
-
-### Card Reference Types
-- `doc(size)`: HTML partial stored on the server, size in bytes
-- `link`: external URL
-
-### Similarity Score
-- 1.00: Exact semantic match
-- 0.80 - 0.99: High relevance
+### Response Formats
+- **JSON**: `{"status":"success","query":"...","lang":"de","format":"json","count":N,"data":[Tile...],"items":[...]}`
+  - Tile schema: `id`, `name`, `language`, `tags`, `title`, `html_teaser`, `summary`, `link`, `type` ("doc"|"link"), `content_file`, `visible`, `accent_color`, `background`, `sort_order`, `created_at`, `updated_at`, `score` (0..1 relevance).
+- **TOON** (`?format=toon` or `Accept: text/x-toon`): Tabular plain-text output (commented header line + one row per card). Optimized for low token usage in LLM prompts.
 
 ## Other Public Endpoints
-- `GET /api/tiles/:name?lang=de`: Fetch details for a specific card by name (falls back to another language if requested language is missing)
-- `GET /api/tiles/:name/versions`: Fetch available language versions for a specific card → `{"status","name","versions":[TileSummary...]}`
-- `GET /api/healthz`: Liveness/readiness probe → `{"status":"ok","db":"ok","time":"..."}` (HTTP 503 if the database is down)
-- `GET /llms.txt` (this file) and `GET /llms-admin.txt`: machine-readable API documentation
-- `GET /api/mcp`: MCP JSON-RPC 2.0 endpoint — **requires an admin token** (see llms-admin.txt)
+- `GET /api/tiles/:name?lang=de`: Single card by name (falls back to another language if requested language is unavailable).
+- `GET /api/tiles/:name/versions`: Available language versions for a card → `{"status","name","versions":[TileSummary...]}`.
+- `GET /api/healthz`: Service health check → `{"status":"ok","db":"ok","time":"..."}` (HTTP 503 if database down).
+- `GET /llms.txt`: This documentation file.
 
 ### Errors
-All errors are JSON: `{"status":"error","message":"..."}`. Unknown card → HTTP 404. Missing/invalid admin token on protected endpoints → HTTP 401.
+Errors return JSON: `{"status":"error","message":"..."}`. Unknown card returns HTTP 404.
 
-### Example API Queries
+### Example Queries
 - Vector Search: [https://leben.8bj.de/api/tiles?q=finance+investments&limit=3&lang=de](https://leben.8bj.de/api/tiles?q=finance+investments&limit=3&lang=de)
-- Similarity Search by Card: [https://leben.8bj.de/api/tiles?similar=finance&limit=3&lang=de](https://leben.8bj.de/api/tiles?similar=finance&limit=3&lang=de)
-- Explore All Cards: [https://leben.8bj.de/api/tiles?limit=0&detail=min&lang=en](https://leben.8bj.de/api/tiles?limit=0&detail=min&lang=en)
-- Full document: [https://leben.8bj.de/api/tiles?q=vision&limit=1&detail=full&crop=4000&lang=en](https://leben.8bj.de/api/tiles?q=vision&limit=1&detail=full&crop=4000&lang=en)
-- TOON Text Format: [https://leben.8bj.de/api/tiles?q=vision&format=toon](https://leben.8bj.de/api/tiles?q=vision&format=toon)
-
-## TOON Output Format
-`?format=toon` (or `Accept: text/x-toon`) returns results as tabular plain text: a commented header line naming the fields, then one row per card. Token-efficient for LLM consumption. Use `detail` and `crop` as with JSON.
+- Similarity: [https://leben.8bj.de/api/tiles?similar=finance&limit=3&lang=de](https://leben.8bj.de/api/tiles?similar=finance&limit=3&lang=de)
+- Full Text in TOON: [https://leben.8bj.de/api/tiles?q=vision&limit=1&detail=full&format=toon](https://leben.8bj.de/api/tiles?q=vision&limit=1&detail=full&format=toon)
+- All Cards (compact): [https://leben.8bj.de/api/tiles?limit=0&detail=min&lang=en](https://leben.8bj.de/api/tiles?limit=0&detail=min&lang=en)
 
 ---
 
 ## Admin Endpoints
-For administrative capabilities (device-flow authentication, token management, card CRUD, translation, background tasks, content files, images & assets, MCP), see [/llms-admin.txt](https://leben.8bj.de/llms-admin.txt).
+For authenticated management APIs (content CRUD, AI translation, background tasks, assets, and MCP), see [/llms-admin.txt](https://leben.8bj.de/llms-admin.txt).
