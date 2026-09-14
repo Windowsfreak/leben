@@ -615,8 +615,9 @@ function saveTile(syncSiblings = false) {
 }
 
 // Quick action: Toggle visibility flag of a tile
-function toggleVisibility(id) {
-    fetch(`/api/admin/tile/${id}/toggle-visibility`, {
+function toggleVisibility(name, lang) {
+    const query = lang ? `?lang=${encodeURIComponent(lang)}` : '';
+    fetch(`/api/admin/tile/${encodeURIComponent(name)}/toggle-visibility${query}`, {
         method: 'POST',
         headers: buildApiHeaders()
     })
@@ -630,8 +631,9 @@ function toggleVisibility(id) {
 }
 
 // Quick action: Clone an existing tile
-function cloneTile(id) {
-    fetch(`/api/admin/tile/${id}/clone`, {
+function cloneTile(name, lang) {
+    const query = lang ? `?lang=${encodeURIComponent(lang)}` : '';
+    fetch(`/api/admin/tile/${encodeURIComponent(name)}/clone${query}`, {
         method: 'POST',
         headers: buildApiHeaders()
     })
@@ -647,16 +649,15 @@ function cloneTile(id) {
 }
 
 // Quick action: Delete tile
-function deleteTile(id, title) {
+function deleteTile(name, lang, title) {
     if (!confirm(`Soll die Kachel "${title}" wirklich unwiderruflich gelöscht werden?`)) {
         return;
     }
     
-    const formData = new FormData();
-    formData.append('id', id);
-    
-    fetch(`/api/admin/tiles/${id}`, {
+    const query = lang ? `?lang=${encodeURIComponent(lang)}` : '';
+    fetch(`/api/admin/tile/${encodeURIComponent(name)}${query}`, {
         method: 'DELETE',
+        headers: buildApiHeaders()
     })
         .then(res => res.json())
         .then(res => {
@@ -1301,7 +1302,7 @@ function renderAdminControls(tileDiv, tile) {
     // Admin actions listeners
     adminBar.querySelector('.toggle-vis-btn').addEventListener('click', (e) => {
         e.stopPropagation();
-        toggleVisibility(tile.id);
+        toggleVisibility(tile.name, tile.lang);
     });
     
     adminBar.querySelector('.edit-btn').addEventListener('click', (e) => {
@@ -1311,12 +1312,12 @@ function renderAdminControls(tileDiv, tile) {
     
     adminBar.querySelector('.clone-btn').addEventListener('click', (e) => {
         e.stopPropagation();
-        cloneTile(tile.id);
+        cloneTile(tile.name, tile.lang);
     });
     
     adminBar.querySelector('.delete-btn').addEventListener('click', (e) => {
         e.stopPropagation();
-        deleteTile(tile.id, tile.title);
+        deleteTile(tile.name, tile.lang, tile.title);
     });
 }
 window.renderAdminControls = renderAdminControls;
@@ -1348,7 +1349,9 @@ window.handleAdminModalClose = handleAdminModalClose;
 function openLightboxEditor(tile) {
     window.isEditing = true;
     const dialog = document.getElementById('lightboxEditorDialog');
-    document.getElementById('lightboxEditTileId').value = tile.id;
+    document.getElementById('lightboxEditTileId').value = tile.id || '';
+    document.getElementById('lightboxEditTileName').value = tile.name || '';
+    document.getElementById('lightboxEditTileLang').value = tile.lang || '';
     document.getElementById('lightboxEditFileName').value = tile.content_file || '';
     
     document.getElementById('lightboxEditorTitle').textContent = tile.content_file
@@ -1412,8 +1415,9 @@ function openLightboxEditor(tile) {
 window.openLightboxEditor = openLightboxEditor;
 
 // Save Lightbox Content
-function saveLightboxEditor() {
-    const id = document.getElementById('lightboxEditTileId').value;
+async function saveLightboxEditor() {
+    const name = document.getElementById('lightboxEditTileName').value;
+    const lang = document.getElementById('lightboxEditTileLang').value;
     const file = document.getElementById('lightboxEditFileName').value;
     
     const htmlContent = (monacoLightboxEditorInstance && monacoLoaded)
@@ -1432,8 +1436,22 @@ function saveLightboxEditor() {
         url = `/api/admin/content/${encodeURIComponent(file)}`;
         bodyData = JSON.stringify({ content: htmlContent });
     } else {
-        url = '/api/admin/tiles';
-        bodyData = JSON.stringify({ id: parseInt(id, 10), html_teaser: htmlContent });
+        try {
+            const tileLang = lang || (typeof window.lang !== 'undefined' ? window.lang : 'de');
+            const res = await fetch(`/api/tiles/${encodeURIComponent(name)}?lang=${encodeURIComponent(tileLang)}`, {
+                headers: buildApiHeaders('')
+            });
+            const json = await res.json();
+            const tileData = (json.status === 'success' && json.tile) ? json.tile : { name, lang: tileLang };
+            tileData.html_teaser = htmlContent;
+            url = '/api/admin/tiles';
+            bodyData = JSON.stringify(tileData);
+        } catch (e) {
+            saveBtn.disabled = false;
+            saveBtn.innerHTML = origHtml;
+            alert("Fehler beim Laden der Kacheldaten vor dem Speichern.");
+            return;
+        }
     }
     
     fetch(url, {

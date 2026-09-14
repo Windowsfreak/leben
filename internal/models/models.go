@@ -29,10 +29,10 @@ type Tile struct {
 
 type TileDTO struct {
 	Index       int      `json:"index,omitempty" toon:"index,omitempty"`
-	ID          int      `json:"id,omitempty" toon:"id,omitempty"`
-	Name        string   `json:"name" toon:"name"`
+	ID          int      `json:"-" toon:"-"`
+	Name        string   `json:"name,omitempty" toon:"name,omitempty"`
 	Lang        string   `json:"lang,omitempty" toon:"lang,omitempty"`
-	Title       string   `json:"title" toon:"title"`
+	Title       string   `json:"title,omitempty" toon:"title,omitempty"`
 	HTMLTeaser  string   `json:"html_teaser,omitempty" toon:"html_teaser,omitempty"`
 	Summary     string   `json:"summary,omitempty" toon:"summary,omitempty"`
 	Content     string   `json:"content,omitempty" toon:"content,omitempty"`

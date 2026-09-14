@@ -78,15 +78,15 @@ Enables passwordless token acquisition for CLI tools, scripts, and MCP servers:
 
 ## 4. Tile Management & Vector Operations
 
-### `GET /api/admin/tiles`
-- **Res**: `{"status":"success","tiles":[Tile...]}`
-- Returns all tiles including hidden and secret cards.
+### `GET /api/admin/check`
+- **Res**: `{"status":"success","role":"admin","admin":true}`
+- Lightweight authentication probe to verify active admin session credentials without transferring data.
+- *(Note: Full tile listings, including hidden and secret cards, are fetched via `GET /api/tiles?detail=full&limit=0&lang=all`).*
 
 ### `POST /api/admin/tiles` or `PUT /api/admin/tiles`
 - **Req**: JSON object:
-  - `id` (int, optional; `> 0` updates existing, `0` or omitted creates new)
-  - `name` (str, required)
-  - `lang` (str, e.g. "de", "en")
+  - `name` (str, required): Unique card name (slug)
+  - `lang` (str, required): Language code, e.g. "de", "en"
   - `title` (str, required)
   - `summary` (str)
   - `html_teaser` (str)
@@ -99,15 +99,18 @@ Enables passwordless token acquisition for CLI tools, scripts, and MCP servers:
   - `background` (str)
   - `visible` (bool)
   - `sort_order` (int)
-- **Res**: `{"status":"success","message":"Tile saved successfully.","tile":Tile}` (Ollama vector embeddings regenerated automatically).
+- **Res**: `{"status":"success","message":"Tile saved successfully.","tile":Tile}` (Ollama vector embeddings regenerated automatically). Uses (name, lang) as unique upsert key.
 
-### `DELETE /api/admin/tile/:id` (or `/api/admin/tiles/:id`)
+### `DELETE /api/admin/tile/:name?lang=...` (or `/api/admin/tiles/:id`)
+- **Req**: Path param `name` and query param `lang` (or numeric internal `id`)
 - **Res**: `{"status":"success","message":"Tile deleted."}`
 
-### `POST /api/admin/tile/:id/toggle-visibility`
+### `POST /api/admin/tile/:name/toggle-visibility?lang=...`
+- **Req**: Path param `name` and query param `lang` (or numeric internal `id`)
 - **Res**: `{"status":"success","message":"Tile visibility toggled."}`
 
-### `POST /api/admin/tile/:id/clone`
+### `POST /api/admin/tile/:name/clone?lang=...`
+- **Req**: Path param `name` and query param `lang` (or numeric internal `id`)
 - **Res**: `{"status":"success","message":"Tile cloned successfully.","clone_name":string}`
 
 ### `POST /api/admin/tile/:id/translate`
@@ -157,6 +160,9 @@ Task schema:
 
 Article bodies are stored as HTML partials in `/content/` and referenced by a tile's `content_file` field.
 
+### `GET /api/admin/content`
+- **Res**: `{"status":"success","files":[{"name":string,"size":int64,"mtime":int64}]}` (Lists all HTML articles in `/content/`).
+
 ### `GET /api/admin/content/:file`
 - **Req**: Path parameter (e.g. `finance_de.html`)
 - **Res**: `{"status":"success","content":string,"mtime":int64}` (nonexistent file returns 200 with `content: ""` and `mtime: 0`).
@@ -165,6 +171,14 @@ Article bodies are stored as HTML partials in `/content/` and referenced by a ti
 - **Req**: JSON `{"content": string, "expected_mtime": int64}`
 - **Res**: `{"status":"success","message":"File saved successfully.","mtime":int64}`
 - **Conflict**: If file was modified on disk since `expected_mtime`, returns HTTP 409 `{"status":"error","message":"...","actual_mtime":int64}`.
+
+### `DELETE /api/admin/content/:file`
+- **Req**: Path parameter (e.g. `finance_de.html`)
+- **Res**: `{"status":"success","message":"Content file deleted"}`
+
+### `POST /api/admin/content/rename`
+- **Req**: JSON `{"old_name": string, "new_name": string}`
+- **Res**: `{"status":"success","message":"Renamed ..."}`
 
 ### `POST /api/admin/content-suggest-meta`
 - **Req**: JSON `{"name": string, "title": string, "content_file": string, "html_teaser": string}`
@@ -222,7 +236,7 @@ JSON-RPC 2.0 endpoint for MCP clients. Supports **MCP Streamable HTTP** (modern 
 
 ### Authentication & Permissions
 - **Public access (anonymous)**: `initialize`, `ping`, and read-only tools (`search_tiles`, `get_similar_tiles`, `get_tile`, `get_tile_versions`, `check_auth`) do not require a token.
-- **Admin operations**: Admin tools (`translate_tile`, `list_tasks`, `cancel_task`, `save_content_file`, ...) require Bearer authentication (`Authorization: Bearer lbn_...`).
+- **Admin operations**: Admin tools (`save_tile`, `update_tile_fields`, `delete_tile`, `clone_tile`, `manage_content`, `translate_tile`, `list_tasks`, `cancel_task`, `manage_media`, ...) require Bearer authentication (`Authorization: Bearer lbn_...`).
 - **Discovery**: Unauthenticated requests receive RFC 9728 metadata pointers via `WWW-Authenticate: Bearer resource_metadata=".../.well-known/oauth-protected-resource/api/mcp"`.
 - **OAuth 2.0 Metadata Endpoints**:
   - `GET /.well-known/oauth-protected-resource/api/mcp` (RFC 9728 Protected Resource Metadata)
@@ -234,7 +248,7 @@ JSON-RPC 2.0 endpoint for MCP clients. Supports **MCP Streamable HTTP** (modern 
 - Streaming: Send `Accept: text/event-stream` to receive JSON-RPC responses via chunked SSE events.
 
 ### `POST /api/admin/mcp` (Admin MCP Endpoint)
-- Force-exposes all 24 tools in `tools/list` upfront even if initially unauthenticated, so LLM agents discover administrative capabilities.
+- Force-exposes all 21 tools in `tools/list` upfront even if initially unauthenticated, so LLM agents discover administrative capabilities.
 - Invoking admin tools via `tools/call` still enforces Bearer token authentication (`Authorization: Bearer lbn_...`).
 - Discovery: `GET /.well-known/oauth-protected-resource/api/admin/mcp`.
 

@@ -54,30 +54,46 @@ func (s *TileService) SearchTiles(ctx context.Context, prefLang, queryStr string
 		}
 		vecStr := db.VectorToString(queryVec)
 
-		sqlQuery := `
-			WITH resolved_tiles AS (
-				SELECT *,
-					   (embedding <=> $1::vector) as distance,
-					   ROW_NUMBER() OVER (
-						   PARTITION BY name 
-						   ORDER BY 
-							   CASE WHEN language = $2 THEN 1 
-									ELSE 2 
-							   END,
-							   (embedding <=> $1::vector) ASC
-					   ) as rn
+		var sqlQuery string
+		var rows *sql.Rows
+		if prefLang == "all" {
+			sqlQuery = `
+				SELECT id, name, language, tags, title, html_teaser, 
+					   summary, link, type, content_file, 
+					   visible, secret, accent_color, background, embedding, sort_order, created_at, updated_at,
+					   (embedding <=> $1::vector) as distance
 				FROM tiles
-				WHERE ($3 = true OR (visible = true AND (secret = '' OR secret = ANY(string_to_array($4, ',')))))
-			)
-			SELECT id, name, language, tags, title, html_teaser, 
-				   summary, link, type, content_file, 
-				   visible, secret, accent_color, background, embedding, sort_order, created_at, updated_at, distance
-			FROM resolved_tiles 
-			WHERE rn = 1 
-			ORDER BY distance ASC, sort_order ASC, id ASC 
-			LIMIT $5 OFFSET $6
-		`
-		rows, err := s.database.QueryContext(ctx, sqlQuery, vecStr, prefLang, showInvisible, refCodesStr, dbLimit, offset)
+				WHERE ($2 = true OR (visible = true AND (secret = '' OR secret = ANY(string_to_array($3, ',')))))
+				ORDER BY distance ASC, sort_order ASC, id ASC 
+				LIMIT $4 OFFSET $5
+			`
+			rows, err = s.database.QueryContext(ctx, sqlQuery, vecStr, showInvisible, refCodesStr, dbLimit, offset)
+		} else {
+			sqlQuery = `
+				WITH resolved_tiles AS (
+					SELECT *,
+						   (embedding <=> $1::vector) as distance,
+						   ROW_NUMBER() OVER (
+							   PARTITION BY name 
+							   ORDER BY 
+								   CASE WHEN language = $2 THEN 1 
+										ELSE 2 
+								   END,
+								   (embedding <=> $1::vector) ASC
+						   ) as rn
+					FROM tiles
+					WHERE ($3 = true OR (visible = true AND (secret = '' OR secret = ANY(string_to_array($4, ',')))))
+				)
+				SELECT id, name, language, tags, title, html_teaser, 
+					   summary, link, type, content_file, 
+					   visible, secret, accent_color, background, embedding, sort_order, created_at, updated_at, distance
+				FROM resolved_tiles 
+				WHERE rn = 1 
+				ORDER BY distance ASC, sort_order ASC, id ASC 
+				LIMIT $5 OFFSET $6
+			`
+			rows, err = s.database.QueryContext(ctx, sqlQuery, vecStr, prefLang, showInvisible, refCodesStr, dbLimit, offset)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("search query error: %w", err)
 		}
@@ -144,29 +160,45 @@ func (s *TileService) SearchTiles(ctx context.Context, prefLang, queryStr string
 	}
 
 	// No query: sort by sort_order
-	sqlQuery := `
-		WITH resolved_tiles AS (
-			SELECT *,
-				   ROW_NUMBER() OVER (
-					   PARTITION BY name 
-					   ORDER BY 
-						   CASE WHEN language = $1 THEN 1 
-								ELSE 2 
-						   END,
-						   sort_order ASC, created_at DESC, id ASC
-				   ) as rn
+	var sqlQuery string
+	var rows *sql.Rows
+	var err error
+	if prefLang == "all" {
+		sqlQuery = `
+			SELECT id, name, language, tags, title, html_teaser, 
+				   summary, link, type, content_file, 
+				   visible, secret, accent_color, background, embedding, sort_order, created_at, updated_at
 			FROM tiles
-			WHERE ($2 = true OR (visible = true AND (secret = '' OR secret = ANY(string_to_array($3, ',')))))
-		)
-		SELECT id, name, language, tags, title, html_teaser, 
-			   summary, link, type, content_file, 
-			   visible, secret, accent_color, background, embedding, sort_order, created_at, updated_at
-		FROM resolved_tiles 
-		WHERE rn = 1 
-		ORDER BY sort_order ASC, created_at DESC, id ASC
-		LIMIT $4 OFFSET $5
-	`
-	rows, err := s.database.QueryContext(ctx, sqlQuery, prefLang, showInvisible, refCodesStr, dbLimit, offset)
+			WHERE ($1 = true OR (visible = true AND (secret = '' OR secret = ANY(string_to_array($2, ',')))))
+			ORDER BY sort_order ASC, name ASC, language ASC
+			LIMIT $3 OFFSET $4
+		`
+		rows, err = s.database.QueryContext(ctx, sqlQuery, showInvisible, refCodesStr, dbLimit, offset)
+	} else {
+		sqlQuery = `
+			WITH resolved_tiles AS (
+				SELECT *,
+					   ROW_NUMBER() OVER (
+						   PARTITION BY name 
+						   ORDER BY 
+							   CASE WHEN language = $1 THEN 1 
+									ELSE 2 
+							   END,
+							   sort_order ASC, created_at DESC, id ASC
+					   ) as rn
+				FROM tiles
+				WHERE ($2 = true OR (visible = true AND (secret = '' OR secret = ANY(string_to_array($3, ',')))))
+			)
+			SELECT id, name, language, tags, title, html_teaser, 
+				   summary, link, type, content_file, 
+				   visible, secret, accent_color, background, embedding, sort_order, created_at, updated_at
+			FROM resolved_tiles 
+			WHERE rn = 1 
+			ORDER BY sort_order ASC, created_at DESC, id ASC
+			LIMIT $4 OFFSET $5
+		`
+		rows, err = s.database.QueryContext(ctx, sqlQuery, prefLang, showInvisible, refCodesStr, dbLimit, offset)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("tiles list query error: %w", err)
 	}
@@ -406,6 +438,12 @@ func (s *TileService) GetAllTiles(ctx context.Context) ([]*models.Tile, error) {
 }
 
 func (s *TileService) SaveTile(ctx context.Context, tile *models.Tile) error {
+	tile.Name = strings.ToLower(strings.TrimSpace(tile.Name))
+	tile.Language = strings.ToLower(strings.TrimSpace(tile.Language))
+	if tile.Name == "" || tile.Language == "" {
+		return fmt.Errorf("name and language are required")
+	}
+
 	// Generate embedding if necessary
 	docText := FormatTileDocumentText(tile.Name, tile.Language, tile.Tags, tile.Summary)
 	vec, err := s.ollama.GetEmbedding(ctx, docText, "document")
@@ -431,29 +469,29 @@ func (s *TileService) SaveTile(ctx context.Context, tile *models.Tile) error {
 		tile.Type = "doc"
 	}
 
-	if tile.ID > 0 {
-		sqlQuery := `
-			UPDATE tiles 
-			SET name = $1, language = $2, tags = $3, title = $4, html_teaser = $5, summary = $6,
-				link = $7, type = $8, content_file = $9, visible = $10, secret = $11, accent_color = $12,
-				background = $13, embedding = $14::vector, sort_order = $15, updated_at = CURRENT_TIMESTAMP
-			WHERE id = $16
-		`
-		_, err := s.database.ExecContext(ctx, sqlQuery,
-			tile.Name, tile.Language, pgTags, tile.Title, tile.HTMLTeaser, tile.Summary,
-			tile.Link, tile.Type, tile.ContentFile, tile.Visible, tile.Secret, tile.AccentColor,
-			tile.Background, vecStr, tile.SortOrder, tile.ID,
-		)
-		return err
-	}
-
 	sqlQuery := `
 		INSERT INTO tiles (
 			name, language, tags, title, html_teaser, summary, link, type, content_file,
 			visible, secret, accent_color, background, embedding, sort_order, created_at, updated_at
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::vector, $15, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-		) RETURNING id
+		)
+		ON CONFLICT (name, language) DO UPDATE SET
+			tags = EXCLUDED.tags,
+			title = EXCLUDED.title,
+			html_teaser = EXCLUDED.html_teaser,
+			summary = EXCLUDED.summary,
+			link = EXCLUDED.link,
+			type = EXCLUDED.type,
+			content_file = EXCLUDED.content_file,
+			visible = EXCLUDED.visible,
+			secret = EXCLUDED.secret,
+			accent_color = EXCLUDED.accent_color,
+			background = EXCLUDED.background,
+			embedding = EXCLUDED.embedding,
+			sort_order = EXCLUDED.sort_order,
+			updated_at = CURRENT_TIMESTAMP
+		RETURNING id
 	`
 	return s.database.QueryRowContext(ctx, sqlQuery,
 		tile.Name, tile.Language, pgTags, tile.Title, tile.HTMLTeaser, tile.Summary,
@@ -664,3 +702,298 @@ func (s *TileService) RefreshVectors(ctx context.Context) (int, error) {
 	}
 	return count, nil
 }
+
+func (s *TileService) DeleteTileByName(ctx context.Context, name, lang string) error {
+	name = strings.ToLower(strings.TrimSpace(name))
+	lang = strings.ToLower(strings.TrimSpace(lang))
+	if name == "" || lang == "" {
+		return fmt.Errorf("name and language are required")
+	}
+	res, err := s.database.ExecContext(ctx, "DELETE FROM tiles WHERE name = $1 AND language = $2", name, lang)
+	if err != nil {
+		return err
+	}
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		return ErrTileNotFound
+	}
+	return nil
+}
+
+func (s *TileService) ToggleVisibilityByName(ctx context.Context, name, lang string) error {
+	name = strings.ToLower(strings.TrimSpace(name))
+	lang = strings.ToLower(strings.TrimSpace(lang))
+	if name == "" || lang == "" {
+		return fmt.Errorf("name and language are required")
+	}
+	res, err := s.database.ExecContext(ctx, "UPDATE tiles SET visible = NOT visible, updated_at = CURRENT_TIMESTAMP WHERE name = $1 AND language = $2", name, lang)
+	if err != nil {
+		return err
+	}
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		return ErrTileNotFound
+	}
+	return nil
+}
+
+func (s *TileService) CloneTileByName(ctx context.Context, name, lang string) (*models.Tile, error) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	lang = strings.ToLower(strings.TrimSpace(lang))
+	if name == "" || lang == "" {
+		return nil, fmt.Errorf("name and language are required")
+	}
+	orig, err := s.GetTile(ctx, name, lang, nil, true)
+	if err != nil {
+		return nil, err
+	}
+	clone := *orig
+	clone.ID = 0
+	clone.Name = orig.Name + "-copy"
+	clone.Title = orig.Title + " (Copy)"
+	if err := s.SaveTile(ctx, &clone); err != nil {
+		return nil, err
+	}
+	return &clone, nil
+}
+
+type ContentFileInfo struct {
+	Name    string `json:"name"`
+	Size    int64  `json:"size"`
+	ModTime int64  `json:"mtime"`
+}
+
+func ListContentFiles(webDir string) ([]ContentFileInfo, error) {
+	contentDir := filepath.Join(webDir, "content")
+	entries, err := os.ReadDir(contentDir)
+	if err != nil {
+		return nil, err
+	}
+	var files []ContentFileInfo
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(strings.ToLower(e.Name()), ".html") {
+			info, err := e.Info()
+			if err != nil {
+				continue
+			}
+			files = append(files, ContentFileInfo{
+				Name:    e.Name(),
+				Size:    info.Size(),
+				ModTime: info.ModTime().Unix(),
+			})
+		}
+	}
+	return files, nil
+}
+
+func DeleteContentFile(webDir, filename string) error {
+	filename = filepath.Base(filename)
+	if filename == "" || filename == "." {
+		return fmt.Errorf("filename required")
+	}
+	fPath := filepath.Join(webDir, "content", filename)
+	if _, err := os.Stat(fPath); os.IsNotExist(err) {
+		return fmt.Errorf("content file '%s' not found", filename)
+	}
+	return os.Remove(fPath)
+}
+
+func RenameContentFile(webDir, oldName, newName string) error {
+	oldName = filepath.Base(oldName)
+	newName = filepath.Base(newName)
+	if oldName == "" || newName == "" || oldName == "." || newName == "." {
+		return fmt.Errorf("old_name and new_name required")
+	}
+	contentDir := filepath.Join(webDir, "content")
+	oldPath := filepath.Join(contentDir, oldName)
+	newPath := filepath.Join(contentDir, newName)
+	if _, err := os.Stat(oldPath); os.IsNotExist(err) {
+		return fmt.Errorf("content file '%s' not found", oldName)
+	}
+	if _, err := os.Stat(newPath); err == nil {
+		return fmt.Errorf("target content file '%s' already exists", newName)
+	}
+	return os.Rename(oldPath, newPath)
+}
+
+// ToRichTileDTO transforms a models.Tile into a models.TileDTO according to detail mode,
+// crop limits, admin visibility, and sparse field projection.
+func ToRichTileDTO(t *models.Tile, idx int, detail string, crop int, contentsDir string, qStr, similarName string, isAdmin bool, fieldSet map[string]bool) models.TileDTO {
+	tagsStr := t.Tags
+	dateStr := t.UpdatedAt.Format("2006-01-02")
+
+	typeStr := t.Type
+	if typeStr == "" {
+		typeStr = "doc"
+	}
+	if t.ContentFile != "" {
+		fPath := filepath.Join(contentsDir, t.ContentFile)
+		if info, err := os.Stat(fPath); err == nil {
+			typeStr = fmt.Sprintf("doc(%db)", info.Size())
+		}
+	}
+
+	var score *float64
+	if t.Score != nil {
+		score = t.Score
+	} else if (qStr != "" || similarName != "") && t.Distance > 0 && t.Distance <= 2.0 {
+		sim := math.Round((1.0-t.Distance)*100) / 100
+		if sim < 0 {
+			sim = 0
+		}
+		if sim > 1 {
+			sim = 1
+		}
+		score = &sim
+	}
+
+	summaryText := ""
+	bodyText := ""
+	teaserText := ""
+	accentColor := ""
+	background := ""
+	contentFile := ""
+
+	var visiblePtr *bool
+	secret := ""
+	sortOrder := 0
+
+	switch detail {
+	case "min":
+		// Only core metadata: summary, body, teaser, accent, background are empty
+	case "summary":
+		summaryText = t.Summary
+		contentFile = t.ContentFile
+	case "full":
+		summaryText = t.Summary
+		teaserText = t.HTMLTeaser
+		accentColor = t.AccentColor
+		background = t.Background
+		contentFile = t.ContentFile
+		if t.ContentFile != "" {
+			fPath := filepath.Join(contentsDir, t.ContentFile)
+			if bytes, err := os.ReadFile(fPath); err == nil {
+				bodyText = string(bytes)
+			}
+		} else if t.Link != "" {
+			bodyText = "Link URL: " + t.Link
+		} else {
+			bodyText = t.HTMLTeaser
+		}
+		if isAdmin {
+			vis := t.Visible
+			visiblePtr = &vis
+			secret = t.Secret
+			sortOrder = t.SortOrder
+		}
+	default: // "snippet"
+		detail = "snippet"
+		summaryText = t.Summary
+		contentFile = t.ContentFile
+		if crop <= 0 {
+			crop = 120
+		}
+	}
+
+	if crop > 0 {
+		if len(summaryText) > crop {
+			summaryText = summaryText[:crop] + "..."
+		}
+		if len(bodyText) > crop {
+			bodyText = bodyText[:crop] + "..."
+		}
+	}
+
+	dto := models.TileDTO{
+		Index:       idx,
+		Name:        t.Name,
+		Lang:        t.Language,
+		Title:       t.Title,
+		HTMLTeaser:  teaserText,
+		Summary:     summaryText,
+		Content:     bodyText,
+		ContentFile: contentFile,
+		Type:        typeStr,
+		Tags:        tagsStr,
+		Link:        t.Link,
+		Date:        dateStr,
+		Score:       score,
+		AccentColor: accentColor,
+		Background:  background,
+		Visible:     visiblePtr,
+		Secret:      secret,
+		SortOrder:   sortOrder,
+	}
+
+	if len(fieldSet) > 0 {
+		ApplyFieldMask(&dto, t, fieldSet)
+	}
+
+	return dto
+}
+
+// ApplyFieldMask filters TileDTO fields according to requested field names.
+func ApplyFieldMask(dto *models.TileDTO, t *models.Tile, fieldSet map[string]bool) {
+	if !fieldSet["index"] {
+		dto.Index = 0
+	}
+	if !fieldSet["name"] {
+		dto.Name = ""
+	}
+	if !fieldSet["lang"] && !fieldSet["language"] {
+		dto.Lang = ""
+	}
+	if !fieldSet["title"] {
+		dto.Title = ""
+	}
+	if !fieldSet["html_teaser"] && !fieldSet["teaser"] {
+		dto.HTMLTeaser = ""
+	}
+	if !fieldSet["summary"] {
+		dto.Summary = ""
+	}
+	if !fieldSet["content"] && !fieldSet["body"] {
+		dto.Content = ""
+	}
+	if !fieldSet["content_file"] && !fieldSet["file"] {
+		dto.ContentFile = ""
+	}
+	if !fieldSet["type"] {
+		dto.Type = ""
+	}
+	if !fieldSet["tags"] {
+		dto.Tags = ""
+	}
+	if !fieldSet["link"] {
+		dto.Link = ""
+	}
+	if !fieldSet["date"] && !fieldSet["created_at"] && !fieldSet["updated_at"] {
+		dto.Date = ""
+	}
+	if !fieldSet["score"] {
+		dto.Score = nil
+	}
+	if !fieldSet["accent_color"] && !fieldSet["color"] {
+		dto.AccentColor = ""
+	}
+	if !fieldSet["background"] {
+		dto.Background = ""
+	}
+	if !fieldSet["visible"] {
+		dto.Visible = nil
+	} else if dto.Visible == nil {
+		vis := t.Visible
+		dto.Visible = &vis
+	}
+	if !fieldSet["secret"] {
+		dto.Secret = ""
+	} else if dto.Secret == "" {
+		dto.Secret = t.Secret
+	}
+	if !fieldSet["sort_order"] {
+		dto.SortOrder = 0
+	} else if dto.SortOrder == 0 {
+		dto.SortOrder = t.SortOrder
+	}
+}
+

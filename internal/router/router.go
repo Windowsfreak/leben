@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math"
 	"net/http"
 	"os"
 	"os/exec"
@@ -125,7 +124,7 @@ func (r *Router) setupRoutes() {
 	r.router.POST("/api/admin/logout", r.handleAdminLogout)
 
 	// Admin Protected Endpoints
-	r.router.GET("/api/admin/tiles", r.wrapAuth(r.handleAdminGetAllTiles))
+	r.router.GET("/api/admin/check", r.wrapAuth(r.handleAdminCheck))
 	r.router.POST("/api/admin/tiles", r.wrapAuth(r.handleAdminSaveTile))
 	r.router.PUT("/api/admin/tiles", r.wrapAuth(r.handleAdminSaveTile))
 	r.router.POST("/api/admin/tiles/refresh-vectors", r.wrapAuth(r.handleAdminRefreshVectors))
@@ -147,8 +146,11 @@ func (r *Router) setupRoutes() {
 	r.router.GET("/api/admin/tokens", r.wrapAuth(r.handleAdminListTokens))
 	r.router.DELETE("/api/admin/tokens/:id", r.wrapAuth(r.handleAdminRevokeToken))
 
+	r.router.GET("/api/admin/content", r.wrapAuth(r.handleAdminListContentFiles))
 	r.router.GET("/api/admin/content/:file", r.wrapAuth(r.handleAdminGetContentFile))
 	r.router.POST("/api/admin/content/:file", r.wrapAuth(r.handleAdminSaveContentFile))
+	r.router.DELETE("/api/admin/content/:file", r.wrapAuth(r.handleAdminDeleteContentFile))
+	r.router.POST("/api/admin/content/:file/rename", r.wrapAuth(r.handleAdminRenameContentFile))
 	r.router.POST("/api/admin/content-suggest-meta", r.wrapAuth(r.handleAdminSuggestMeta))
 	r.router.POST("/api/admin/content-edit-html", r.wrapAuth(r.handleAdminEditHTMLWithLLM))
 
@@ -202,6 +204,18 @@ func (r *Router) handleGetTiles(w http.ResponseWriter, req *http.Request, _ http
 	crop, _ := strconv.Atoi(qParams.Get("crop"))
 	offset, _ := strconv.Atoi(qParams.Get("offset"))
 
+	fieldsStr := strings.TrimSpace(qParams.Get("fields"))
+	var fieldSet map[string]bool
+	if fieldsStr != "" {
+		fieldSet = make(map[string]bool)
+		for _, f := range strings.Split(fieldsStr, ",") {
+			f = strings.ToLower(strings.TrimSpace(f))
+			if f != "" {
+				fieldSet[f] = true
+			}
+		}
+	}
+
 	// Explicit limit handling: default 20 if limit parameter omitted; if limit=0, return all
 	limit := 20
 	if qParams.Has("limit") {
@@ -247,7 +261,7 @@ func (r *Router) handleGetTiles(w http.ResponseWriter, req *http.Request, _ http
 	contentsDir := filepath.Join(r.cfg.Server.WebDir, "content")
 	dtos := make([]models.TileDTO, len(tiles))
 	for idx, t := range tiles {
-		dtos[idx] = toRichTileDTO(t, offset+idx+1, detail, crop, contentsDir, qStr, similarName)
+		dtos[idx] = toRichTileDTO(t, offset+idx+1, detail, crop, contentsDir, qStr, similarName, showInvisible, fieldSet)
 	}
 
 	if format == "toon" {
@@ -286,7 +300,6 @@ func toFrontendTileDTO(t *models.Tile, isAdmin bool) models.TileDTO {
 		Background:  t.Background,
 	}
 	if isAdmin {
-		dto.ID = t.ID
 		visibleCopy := t.Visible
 		dto.Visible = &visibleCopy
 		dto.Secret = t.Secret
@@ -296,81 +309,8 @@ func toFrontendTileDTO(t *models.Tile, isAdmin bool) models.TileDTO {
 	return dto
 }
 
-func toRichTileDTO(t *models.Tile, idx int, detail string, crop int, contentsDir string, qStr, similarName string) models.TileDTO {
-	tagsStr := t.Tags
-	dateStr := t.UpdatedAt.Format("2006-01-02")
-
-	typeStr := t.Type
-	if typeStr == "" {
-		typeStr = "doc"
-	}
-	if t.ContentFile != "" {
-		fPath := filepath.Join(contentsDir, t.ContentFile)
-		if info, err := os.Stat(fPath); err == nil {
-			typeStr = fmt.Sprintf("doc(%db)", info.Size())
-		}
-	}
-
-	var score *float64
-	if t.Score != nil {
-		score = t.Score
-	} else if (qStr != "" || similarName != "") && t.Distance > 0 && t.Distance <= 2.0 {
-		sim := math.Round((1.0-t.Distance)*100) / 100
-		if sim < 0 {
-			sim = 0
-		}
-		if sim > 1 {
-			sim = 1
-		}
-		score = &sim
-	}
-
-	summaryText := t.Summary
-	bodyText := ""
-
-	if detail == "full" {
-		if t.ContentFile != "" {
-			fPath := filepath.Join(contentsDir, t.ContentFile)
-			if bytes, err := os.ReadFile(fPath); err == nil {
-				bodyText = string(bytes)
-			}
-		} else if t.Link != "" {
-			bodyText = "Link URL: " + t.Link
-		} else {
-			bodyText = t.HTMLTeaser
-		}
-	}
-
-	if detail == "snippet" && crop <= 0 {
-		crop = 70
-	}
-	if crop > 0 {
-		if len(summaryText) > crop {
-			summaryText = summaryText[:crop] + "..."
-		}
-		if len(bodyText) > crop {
-			bodyText = bodyText[:crop] + "..."
-		}
-	}
-
-	return models.TileDTO{
-		Index:       idx,
-		ID:          t.ID,
-		Name:        t.Name,
-		Lang:        t.Language,
-		Title:       t.Title,
-		HTMLTeaser:  t.HTMLTeaser,
-		Summary:     summaryText,
-		Content:     bodyText,
-		ContentFile: t.ContentFile,
-		Type:        typeStr,
-		Tags:        tagsStr,
-		Link:        t.Link,
-		Date:        dateStr,
-		Score:       score,
-		AccentColor: t.AccentColor,
-		Background:  t.Background,
-	}
+func toRichTileDTO(t *models.Tile, idx int, detail string, crop int, contentsDir string, qStr, similarName string, isAdmin bool, fieldSet map[string]bool) models.TileDTO {
+	return services.ToRichTileDTO(t, idx, detail, crop, contentsDir, qStr, similarName, isAdmin, fieldSet)
 }
 
 func (r *Router) handleGetTileByName(w http.ResponseWriter, req *http.Request, ps httprouter.Params) {
@@ -525,15 +465,11 @@ func requestIsSecure(req *http.Request) bool {
 	return req.TLS != nil || strings.EqualFold(req.Header.Get("X-Forwarded-Proto"), "https")
 }
 
-func (r *Router) handleAdminGetAllTiles(w http.ResponseWriter, req *http.Request) {
-	tiles, err := r.tileSvc.GetAllTiles(req.Context())
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
+func (r *Router) handleAdminCheck(w http.ResponseWriter, req *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status": "success",
-		"tiles":  tiles,
+		"role":   "admin",
+		"admin":  true,
 	})
 }
 
@@ -544,8 +480,14 @@ func (r *Router) handleAdminSaveTile(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	tile.Name = strings.ToLower(strings.TrimSpace(tile.Name))
+	tile.Language = strings.ToLower(strings.TrimSpace(tile.Language))
 	if tile.Name == "" || tile.Title == "" {
 		writeError(w, http.StatusBadRequest, "Name and Title are required.")
+		return
+	}
+	if tile.Language == "" {
+		writeError(w, http.StatusBadRequest, "Language parameter is required for mutating operations (e.g. 'de', 'en') to prevent modifying the wrong entry.")
 		return
 	}
 
@@ -563,12 +505,33 @@ func (r *Router) handleAdminSaveTile(w http.ResponseWriter, req *http.Request) {
 
 func (r *Router) handleAdminDeleteTile(w http.ResponseWriter, req *http.Request) {
 	ps := httprouter.ParamsFromContext(req.Context())
-	id, err := strconv.Atoi(ps.ByName("id"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid tile ID.")
+	param := ps.ByName("id")
+	if param == "" {
+		param = ps.ByName("name")
+	}
+	lang := strings.ToLower(strings.TrimSpace(req.URL.Query().Get("lang")))
+	if lang == "" {
+		lang = strings.ToLower(strings.TrimSpace(req.URL.Query().Get("language")))
+	}
+
+	if id, err := strconv.Atoi(param); err == nil && id > 0 {
+		if err := r.tileSvc.DeleteTile(req.Context(), id); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": "success", "message": "Tile deleted."})
 		return
 	}
-	if err := r.tileSvc.DeleteTile(req.Context(), id); err != nil {
+
+	if lang == "" {
+		writeError(w, http.StatusBadRequest, "Language parameter is required for mutating operations (e.g. ?lang=de) to prevent modifying the wrong entry.")
+		return
+	}
+	if err := r.tileSvc.DeleteTileByName(req.Context(), param, lang); err != nil {
+		if errors.Is(err, services.ErrTileNotFound) {
+			writeError(w, http.StatusNotFound, fmt.Sprintf("Tile '%s' (lang: %s) not found", param, lang))
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -1264,12 +1227,33 @@ func (r *Router) handleAdminRefreshVectors(w http.ResponseWriter, req *http.Requ
 
 func (r *Router) handleAdminToggleVisibility(w http.ResponseWriter, req *http.Request) {
 	ps := httprouter.ParamsFromContext(req.Context())
-	id, err := strconv.Atoi(ps.ByName("id"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid tile ID.")
+	param := ps.ByName("id")
+	if param == "" {
+		param = ps.ByName("name")
+	}
+	lang := strings.ToLower(strings.TrimSpace(req.URL.Query().Get("lang")))
+	if lang == "" {
+		lang = strings.ToLower(strings.TrimSpace(req.URL.Query().Get("language")))
+	}
+
+	if id, err := strconv.Atoi(param); err == nil && id > 0 {
+		if err := r.tileSvc.ToggleVisibility(req.Context(), id); err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": "success", "message": "Tile visibility toggled."})
 		return
 	}
-	if err := r.tileSvc.ToggleVisibility(req.Context(), id); err != nil {
+
+	if lang == "" {
+		writeError(w, http.StatusBadRequest, "Language parameter is required for mutating operations (e.g. ?lang=de) to prevent modifying the wrong entry.")
+		return
+	}
+	if err := r.tileSvc.ToggleVisibilityByName(req.Context(), param, lang); err != nil {
+		if errors.Is(err, services.ErrTileNotFound) {
+			writeError(w, http.StatusNotFound, fmt.Sprintf("Tile '%s' (lang: %s) not found", param, lang))
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -1278,13 +1262,39 @@ func (r *Router) handleAdminToggleVisibility(w http.ResponseWriter, req *http.Re
 
 func (r *Router) handleAdminCloneTile(w http.ResponseWriter, req *http.Request) {
 	ps := httprouter.ParamsFromContext(req.Context())
-	id, err := strconv.Atoi(ps.ByName("id"))
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "Invalid tile ID.")
+	param := ps.ByName("id")
+	if param == "" {
+		param = ps.ByName("name")
+	}
+	lang := strings.ToLower(strings.TrimSpace(req.URL.Query().Get("lang")))
+	if lang == "" {
+		lang = strings.ToLower(strings.TrimSpace(req.URL.Query().Get("language")))
+	}
+
+	if id, err := strconv.Atoi(param); err == nil && id > 0 {
+		clone, err := r.tileSvc.CloneTile(req.Context(), id)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":     "success",
+			"message":    "Tile cloned successfully.",
+			"clone_name": clone.Name,
+		})
 		return
 	}
-	clone, err := r.tileSvc.CloneTile(req.Context(), id)
+
+	if lang == "" {
+		writeError(w, http.StatusBadRequest, "Language parameter is required for mutating operations (e.g. ?lang=de) to prevent modifying the wrong entry.")
+		return
+	}
+	clone, err := r.tileSvc.CloneTileByName(req.Context(), param, lang)
 	if err != nil {
+		if errors.Is(err, services.ErrTileNotFound) {
+			writeError(w, http.StatusNotFound, fmt.Sprintf("Tile '%s' (lang: %s) not found", param, lang))
+			return
+		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -1292,5 +1302,51 @@ func (r *Router) handleAdminCloneTile(w http.ResponseWriter, req *http.Request) 
 		"status":     "success",
 		"message":    "Tile cloned successfully.",
 		"clone_name": clone.Name,
+	})
+}
+
+func (r *Router) handleAdminListContentFiles(w http.ResponseWriter, req *http.Request) {
+	files, err := services.ListContentFiles(r.cfg.Server.WebDir)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status": "success",
+		"count":  len(files),
+		"files":  files,
+	})
+}
+
+func (r *Router) handleAdminDeleteContentFile(w http.ResponseWriter, req *http.Request) {
+	ps := httprouter.ParamsFromContext(req.Context())
+	file := ps.ByName("file")
+	if err := services.DeleteContentFile(r.cfg.Server.WebDir, file); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":  "success",
+		"message": fmt.Sprintf("Content file '%s' deleted.", file),
+	})
+}
+
+func (r *Router) handleAdminRenameContentFile(w http.ResponseWriter, req *http.Request) {
+	ps := httprouter.ParamsFromContext(req.Context())
+	file := ps.ByName("file")
+	var body struct {
+		NewName string `json:"new_name"`
+	}
+	_ = json.NewDecoder(req.Body).Decode(&body)
+	if body.NewName == "" {
+		body.NewName = req.URL.Query().Get("new_name")
+	}
+	if err := services.RenameContentFile(r.cfg.Server.WebDir, file, body.NewName); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":  "success",
+		"message": fmt.Sprintf("Content file renamed to '%s'.", body.NewName),
 	})
 }

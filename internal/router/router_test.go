@@ -320,11 +320,14 @@ func TestFrontendTileSerialization(t *testing.T) {
 		t.Fatalf("failed to unmarshal admin JSON: %v", err)
 	}
 
-	requiredAdminKeys := []string{"id", "name", "lang", "title", "visible", "tags"}
+	requiredAdminKeys := []string{"name", "lang", "title", "visible", "tags"}
 	for _, key := range requiredAdminKeys {
 		if _, exists := adminMap[key]; !exists {
 			t.Errorf("expected required key %q in admin TileDTO JSON, but it was missing", key)
 		}
+	}
+	if _, exists := adminMap["id"]; exists {
+		t.Errorf("id must not be serialized in admin TileDTO JSON")
 	}
 }
 
@@ -344,7 +347,7 @@ func TestRichTileDTOSerialization(t *testing.T) {
 		Score:       &scoreVal,
 	}
 
-	dto := toRichTileDTO(tile, 1, "summary", 0, t.TempDir(), "answer", "")
+	dto := toRichTileDTO(tile, 1, "summary", 0, t.TempDir(), "answer", "", false, nil)
 	data, err := json.Marshal(dto)
 	if err != nil {
 		t.Fatalf("failed to marshal rich TileDTO: %v", err)
@@ -358,11 +361,72 @@ func TestRichTileDTOSerialization(t *testing.T) {
 	if m["name"] != "deep-thought" || m["lang"] != "en" || m["score"] != 0.85 {
 		t.Errorf("unexpected rich TileDTO values: %v", m)
 	}
+	if _, exists := m["id"]; exists {
+		t.Errorf("id must not be serialized in TileDTO")
+	}
 	if _, exists := m["distance"]; exists {
 		t.Errorf("distance must not be serialized in TileDTO")
 	}
 	if _, exists := m["language"]; exists {
 		t.Errorf("language must not be serialized in TileDTO (use lang)")
+	}
+
+	// Test detail=min: summary and content must be empty
+	minDTO := toRichTileDTO(tile, 1, "min", 0, t.TempDir(), "", "", false, nil)
+	if minDTO.Summary != "" || minDTO.Content != "" || minDTO.HTMLTeaser != "" {
+		t.Errorf("expected empty summary/content/teaser for detail=min, got summary=%q", minDTO.Summary)
+	}
+
+	// Test detail=snippet: default crop is 120
+	snipDTO := toRichTileDTO(tile, 1, "snippet", 5, t.TempDir(), "", "", false, nil)
+	if snipDTO.Summary != "42 is..." {
+		t.Errorf("expected cropped summary '42 is...', got %q", snipDTO.Summary)
+	}
+
+	// Test field masking: only requested fields
+	fieldsDTO := toRichTileDTO(tile, 1, "summary", 0, t.TempDir(), "", "", false, map[string]bool{"name": true, "title": true})
+	fData, _ := json.Marshal(fieldsDTO)
+	var fMap map[string]any
+	_ = json.Unmarshal(fData, &fMap)
+	if _, exists := fMap["summary"]; exists {
+		t.Errorf("summary must not be serialized when fields=name,title: %v", fMap)
+	}
+	if fMap["name"] != "deep-thought" || fMap["title"] != "Deep Thought" {
+		t.Errorf("expected name and title, got: %v", fMap)
+	}
+}
+
+func TestAdminCheckEndpoint(t *testing.T) {
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			WebDir:    t.TempDir(),
+			PublicURL: "https://leben.8bj.de",
+		},
+	}
+	authSvc := auth.New(cfg, nil)
+	r := New(cfg, authSvc, nil, nil, nil, nil, nil, nil)
+
+	// Without auth -> 401
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/check", nil)
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected 401 without auth, got %d", rec.Code)
+	}
+
+	// With valid admin token -> 200 {"admin":true}
+	token := "admin-test-token"
+	authSvc.SetTestToken(token)
+	reqAuth := httptest.NewRequest(http.MethodGet, "/api/admin/check", nil)
+	reqAuth.Header.Set("Authorization", "Bearer "+token)
+	recAuth := httptest.NewRecorder()
+	r.ServeHTTP(recAuth, reqAuth)
+	if recAuth.Code != http.StatusOK {
+		t.Errorf("expected 200 with admin auth, got %d", recAuth.Code)
+	}
+	var res map[string]any
+	if err := json.Unmarshal(recAuth.Body.Bytes(), &res); err != nil || res["admin"] != true {
+		t.Errorf("expected {\"admin\":true}, got %v", res)
 	}
 }
 

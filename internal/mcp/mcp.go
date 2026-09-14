@@ -21,6 +21,7 @@ import (
 	"github.com/windowsfreak/leben/internal/models"
 	"github.com/windowsfreak/leben/internal/services"
 	"github.com/windowsfreak/leben/internal/tasks"
+	"github.com/windowsfreak/leben/internal/toon"
 )
 
 type Server struct {
@@ -58,13 +59,17 @@ func (s *Server) GetTools(isAdmin bool) []models.MCPTool {
 	publicTools := []models.MCPTool{
 		{
 			Name:        "search_tiles",
-			Description: "Semantic vector search across Björn's profile cards ('tiles'). Use `q` for a natural-language query, `similar` for find-similar-by-card-name, or omit both to list all cards in curated order.",
+			Description: "Semantic vector search across Björn's profile cards ('tiles'). Use `q` for a natural-language query, `similar` for find-similar-by-card-name, or omit both to list all cards in curated order. Set `lang='all'` to retrieve all languages.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"q":       map[string]any{"type": "string", "description": "Natural language query or keywords"},
 					"similar": map[string]any{"type": "string", "description": "Card name to find semantically similar cards for"},
-					"lang":    map[string]any{"type": "string", "enum": langs, "description": "Preferred language (default 'de')"},
+					"lang":    map[string]any{"type": "string", "enum": targetLangs, "description": "Language code or 'all' (default 'de')"},
+					"detail":  map[string]any{"type": "string", "enum": []string{"min", "snippet", "summary", "full"}, "description": "Verbosity level: 'min' (headings only), 'snippet' (default, cropped teaser/summary), 'summary' (full summary), 'full' (full summary + HTML body)"},
+					"crop":    map[string]any{"type": "integer", "description": "Truncation length for summary/body (default 120; 0 for uncropped)"},
+					"format":  map[string]any{"type": "string", "enum": []string{"json", "toon"}, "description": "Output format ('json' or 'toon', default 'json')"},
+					"fields":  map[string]any{"type": "string", "description": "Comma-separated sparse field projection (e.g. 'name,title,summary')"},
 					"limit":   map[string]any{"type": "integer", "description": "Maximum tiles to return (default 20, 0 = all)"},
 					"offset":  map[string]any{"type": "integer", "description": "Pagination offset (default 0)"},
 				},
@@ -124,22 +129,13 @@ func (s *Server) GetTools(isAdmin bool) []models.MCPTool {
 
 	adminTools := []models.MCPTool{
 		{
-			Name:        "admin_list_tiles",
-			Description: "List every card in the database, including invisible and secret ones.",
-			InputSchema: map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
-			},
-		},
-		{
-			Name:        "admin_save_tile",
-			Description: "Create a card (no id) or update an existing one (id > 0). Regenerates the semantic embedding. One card exists per (name, language) pair.",
+			Name:        "save_tile",
+			Description: "Create or update a card. Uses (name, language) as unique key. Regenerates the semantic embedding.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"id":           map[string]any{"type": "integer", "description": "Existing card id to update; omit to create"},
 					"name":         map[string]any{"type": "string", "description": "Unique card name (slug), e.g. 'finance'"},
-					"language":     map[string]any{"type": "string", "description": "Language code (default 'de')"},
+					"language":     map[string]any{"type": "string", "description": "Language code, e.g. 'de' or 'en' (required)"},
 					"title":        map[string]any{"type": "string", "description": "Display title"},
 					"summary":      map[string]any{"type": "string", "description": "High-level summary used for search embeddings and snippets"},
 					"html_teaser":  map[string]any{"type": "string", "description": "HTML teaser shown on the card front"},
@@ -153,18 +149,17 @@ func (s *Server) GetTools(isAdmin bool) []models.MCPTool {
 					"visible":      map[string]any{"type": "boolean", "description": "Visible on the public site (default true)"},
 					"sort_order":   map[string]any{"type": "integer", "description": "Curated order (default 100)"},
 				},
-				"required": []string{"name", "title"},
+				"required": []string{"name", "language", "title"},
 			},
 		},
 		{
-			Name:        "admin_update_tile_fields",
-			Description: "Partially update one or more fields on an existing tile without overwriting unmentioned fields. Identify by numeric `id`, or by `name` (+ optional `language`). Regenerates embedding.",
+			Name:        "update_tile_fields",
+			Description: "Partially update one or more fields on an existing tile without overwriting unmentioned fields. Identify strictly by `name` and `language`. Regenerates embedding.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"id":           map[string]any{"type": "integer", "description": "Numeric tile ID to update (either id or name must be provided)"},
-					"name":         map[string]any{"type": "string", "description": "Card unique name / slug. Required if id is omitted."},
-					"language":     map[string]any{"type": "string", "description": "Language code, e.g. 'de' or 'en' (default 'de')"},
+					"name":         map[string]any{"type": "string", "description": "Card unique name / slug"},
+					"language":     map[string]any{"type": "string", "description": "Language code, e.g. 'de' or 'en'"},
 					"title":        map[string]any{"type": "string", "description": "Display title"},
 					"summary":      map[string]any{"type": "string", "description": "High-level summary"},
 					"html_teaser":  map[string]any{"type": "string", "description": "HTML shown on the card front"},
@@ -178,39 +173,46 @@ func (s *Server) GetTools(isAdmin bool) []models.MCPTool {
 					"visible":      map[string]any{"type": "boolean", "description": "Visible on the public site"},
 					"sort_order":   map[string]any{"type": "integer", "description": "Curated order"},
 				},
+				"required": []string{"name", "language"},
 			},
 		},
 		{
-			Name:        "admin_delete_tile",
-			Description: "Permanently delete a card by numeric id (deletes one (name, language) version).",
+			Name:        "delete_tile",
+			Description: "Permanently delete a card by name and language.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"id": map[string]any{"type": "integer", "description": "Card id"},
+					"name":     map[string]any{"type": "string", "description": "Card name (slug)"},
+					"language": map[string]any{"type": "string", "description": "Language code, e.g. 'de' or 'en'"},
 				},
-				"required": []string{"id"},
+				"required": []string{"name", "language"},
 			},
 		},
 		{
-			Name:        "admin_toggle_visibility",
-			Description: "Show or hide a card on the public site.",
+			Name:        "clone_tile",
+			Description: "Duplicate a card as '<name>-copy' for the specified language.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"id": map[string]any{"type": "integer", "description": "Card id"},
+					"name":     map[string]any{"type": "string", "description": "Card name (slug)"},
+					"language": map[string]any{"type": "string", "description": "Language code, e.g. 'de' or 'en'"},
 				},
-				"required": []string{"id"},
+				"required": []string{"name", "language"},
 			},
 		},
 		{
-			Name:        "admin_clone_tile",
-			Description: "Duplicate a card as '<name>-copy' (same language).",
+			Name:        "manage_content",
+			Description: "List, read, save, delete, or rename HTML article files in /content/ (e.g. 'finance_de.html'). Supports optimistic locking with expected_mtime on save.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"id": map[string]any{"type": "integer", "description": "Card id"},
+					"action":         map[string]any{"type": "string", "enum": []string{"list", "get", "save", "delete", "rename"}, "description": "Operation to perform"},
+					"file":           map[string]any{"type": "string", "description": "Filename in /content/, e.g. 'finance_de.html'"},
+					"content":        map[string]any{"type": "string", "description": "Full HTML content for save"},
+					"new_name":       map[string]any{"type": "string", "description": "New filename for rename"},
+					"expected_mtime": map[string]any{"type": "integer", "description": "mtime from a previous get call for conflict detection (optional)"},
 				},
-				"required": []string{"id"},
+				"required": []string{"action"},
 			},
 		},
 		{
@@ -262,30 +264,6 @@ func (s *Server) GetTools(isAdmin bool) []models.MCPTool {
 					"id": map[string]any{"type": "string", "description": "Task ID to cancel"},
 				},
 				"required": []string{"id"},
-			},
-		},
-		{
-			Name:        "get_content_file",
-			Description: "Read an HTML article file from /content/ (e.g. 'finance_de.html'). Returns content and its mtime.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"file": map[string]any{"type": "string", "description": "Filename, e.g. 'finance_de.html'"},
-				},
-				"required": []string{"file"},
-			},
-		},
-		{
-			Name:        "save_content_file",
-			Description: "Create or update an HTML article file in /content/. Supports optimistic locking with expected_mtime.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"file":           map[string]any{"type": "string", "description": "Filename (e.g. 'contact_de.html')"},
-					"content":        map[string]any{"type": "string", "description": "Full HTML content"},
-					"expected_mtime": map[string]any{"type": "integer", "description": "mtime from a previous get_content_file call for conflict detection (optional)"},
-				},
-				"required": []string{"file", "content"},
 			},
 		},
 		{
@@ -552,13 +530,19 @@ func (s *Server) ExecuteMethod(ctx context.Context, req models.MCPRequest, isAdm
 			}
 		}
 
-		resBytes, _ := json.MarshalIndent(res, "", "  ")
+		var text string
+		if str, ok := res.(string); ok {
+			text = str
+		} else {
+			resBytes, _ := json.MarshalIndent(res, "", "  ")
+			text = string(resBytes)
+		}
 		return models.MCPResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
 			Result: map[string]any{
 				"content": []map[string]any{
-					{"type": "text", "text": string(resBytes)},
+					{"type": "text", "text": text},
 				},
 			},
 		}
@@ -578,25 +562,22 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]a
 	}
 
 	adminOnlyTools := map[string]bool{
-		"admin_list_tiles":         true,
-		"admin_save_tile":          true,
-		"admin_update_tile_fields": true,
-		"admin_delete_tile":        true,
-		"admin_toggle_visibility":  true,
-		"admin_clone_tile":         true,
-		"translate_tile":           true,
-		"translation_status":       true,
-		"refresh_vectors":          true,
-		"list_tasks":               true,
-		"cancel_task":              true,
-		"get_content_file":         true,
-		"save_content_file":        true,
-		"suggest_meta":             true,
-		"edit_html_teaser":         true,
-		"get_frontend_config":      true,
-		"save_frontend_config":     true,
-		"manage_media":             true,
-		"manage_api_tokens":        true,
+		"save_tile":            true,
+		"update_tile_fields":   true,
+		"delete_tile":          true,
+		"clone_tile":           true,
+		"manage_content":       true,
+		"translate_tile":       true,
+		"translation_status":   true,
+		"refresh_vectors":      true,
+		"list_tasks":           true,
+		"cancel_task":          true,
+		"suggest_meta":         true,
+		"edit_html_teaser":     true,
+		"get_frontend_config":  true,
+		"save_frontend_config": true,
+		"manage_media":         true,
+		"manage_api_tokens":    true,
 	}
 
 	if adminOnlyTools[name] && !isAdmin {
@@ -616,11 +597,46 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]a
 			limit = 0
 		}
 		offset := getIntOpt(args, "offset", 0)
-
-		if similar != "" {
-			return s.tileSvc.GetSimilarTiles(ctx, similar, lang, nil, isAdmin, limit, offset)
+		detail := getString(args, "detail")
+		if detail == "" {
+			detail = "snippet"
 		}
-		return s.tileSvc.SearchTiles(ctx, lang, q, nil, isAdmin, offset, limit)
+		crop := getIntOpt(args, "crop", 120)
+		format := getString(args, "format")
+		fieldsParam := getString(args, "fields")
+
+		var tiles []*models.Tile
+		var err error
+		if similar != "" {
+			tiles, err = s.tileSvc.GetSimilarTiles(ctx, similar, lang, nil, isAdmin, limit, offset)
+		} else {
+			tiles, err = s.tileSvc.SearchTiles(ctx, lang, q, nil, isAdmin, offset, limit)
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		var fieldSet map[string]bool
+		if fieldsParam != "" {
+			fieldSet = make(map[string]bool)
+			for _, f := range strings.Split(fieldsParam, ",") {
+				f = strings.TrimSpace(strings.ToLower(f))
+				if f != "" {
+					fieldSet[f] = true
+				}
+			}
+		}
+
+		contentsDir := filepath.Join(s.cfg.Server.WebDir, "content")
+		dtos := make([]models.TileDTO, 0, len(tiles))
+		for i, t := range tiles {
+			dtos = append(dtos, services.ToRichTileDTO(t, offset+i+1, detail, crop, contentsDir, q, similar, isAdmin, fieldSet))
+		}
+
+		if format == "toon" {
+			return toon.FormatTOON(q, lang, detail, dtos)
+		}
+		return dtos, nil
 
 	case "get_similar_tiles":
 		tName := getString(args, "name")
@@ -690,18 +706,22 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]a
 		}
 		return map[string]any{"authenticated": false, "role": "anonymous"}, nil
 
-	case "admin_list_tiles":
-		tiles, err := s.tileSvc.GetAllTiles(ctx)
-		if err != nil {
-			return nil, err
+	case "save_tile":
+		name := getString(args, "name")
+		language := getString(args, "language")
+		if language == "" {
+			language = getString(args, "lang")
 		}
-		return map[string]any{"status": "success", "tiles": tiles}, nil
+		if name == "" {
+			return nil, fmt.Errorf("name is required")
+		}
+		if language == "" {
+			return nil, fmt.Errorf("language is required (no default)")
+		}
 
-	case "admin_save_tile":
 		tile := models.Tile{
-			ID:          getInt(args, "id"),
-			Name:        getString(args, "name"),
-			Language:    getString(args, "language"),
+			Name:        name,
+			Language:    language,
 			Title:       getString(args, "title"),
 			Summary:     getString(args, "summary"),
 			HTMLTeaser:  getString(args, "html_teaser"),
@@ -715,56 +735,24 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]a
 			Visible:     getBool(args, "visible", true),
 			SortOrder:   getInt(args, "sort_order"),
 		}
-		if tile.Language == "" {
-			tile.Language = getString(args, "lang")
-		}
-		if tile.Language == "" {
-			tile.Language = "de"
-		}
 		if err := s.tileSvc.SaveTile(ctx, &tile); err != nil {
 			return nil, err
 		}
-		return map[string]any{"status": "success", "message": "Tile saved.", "id": tile.ID}, nil
+		return map[string]any{"status": "success", "message": "Tile saved.", "name": tile.Name, "lang": tile.Language}, nil
 
-	case "admin_update_tile_fields":
-		id := getInt(args, "id")
+	case "update_tile_fields":
 		name := getString(args, "name")
 		language := getString(args, "language")
 		if language == "" {
 			language = getString(args, "lang")
 		}
-		if language == "" {
-			language = "de"
+		if name == "" || language == "" {
+			return nil, fmt.Errorf("name and language are required")
 		}
 
-		tiles, err := s.tileSvc.GetAllTiles(ctx)
+		existing, err := s.tileSvc.GetTile(ctx, name, language, nil, true)
 		if err != nil {
-			return nil, err
-		}
-
-		var existing *models.Tile
-		if id > 0 {
-			for _, t := range tiles {
-				if t.ID == id {
-					existing = t
-					break
-				}
-			}
-			if existing == nil {
-				return nil, fmt.Errorf("tile with id %d not found", id)
-			}
-		} else if name != "" {
-			for _, t := range tiles {
-				if t.Name == name && t.Language == language {
-					existing = t
-					break
-				}
-			}
-			if existing == nil {
-				return nil, fmt.Errorf("tile with name '%s' and language '%s' not found", name, language)
-			}
-		} else {
-			return nil, fmt.Errorf("either 'id' or 'name' must be provided")
+			return nil, fmt.Errorf("tile '%s' (lang: %s) not found: %w", name, language, err)
 		}
 
 		if val, ok := args["title"]; ok {
@@ -803,48 +791,122 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]a
 		if _, ok := args["sort_order"]; ok {
 			existing.SortOrder = getInt(args, "sort_order")
 		}
-		if id > 0 && name != "" {
-			existing.Name = name
-		}
-		if id > 0 && language != "" {
-			existing.Language = language
-		}
 
 		if err := s.tileSvc.SaveTile(ctx, existing); err != nil {
 			return nil, err
 		}
 		return map[string]any{"status": "success", "message": "Tile updated.", "tile": existing}, nil
 
-	case "admin_delete_tile":
-		id := getInt(args, "id")
-		if id <= 0 {
-			return nil, fmt.Errorf("id must be a positive integer")
+	case "delete_tile":
+		name := getString(args, "name")
+		language := getString(args, "language")
+		if language == "" {
+			language = getString(args, "lang")
 		}
-		if err := s.tileSvc.DeleteTile(ctx, id); err != nil {
+		if name == "" || language == "" {
+			return nil, fmt.Errorf("name and language are required")
+		}
+		if err := s.tileSvc.DeleteTileByName(ctx, name, language); err != nil {
 			return nil, err
 		}
-		return map[string]any{"status": "success", "message": fmt.Sprintf("Tile %d deleted.", id)}, nil
+		return map[string]any{"status": "success", "message": fmt.Sprintf("Tile '%s' (%s) deleted.", name, language)}, nil
 
-	case "admin_toggle_visibility":
-		id := getInt(args, "id")
-		if id <= 0 {
-			return nil, fmt.Errorf("id must be a positive integer")
+	case "clone_tile":
+		name := getString(args, "name")
+		language := getString(args, "language")
+		if language == "" {
+			language = getString(args, "lang")
 		}
-		if err := s.tileSvc.ToggleVisibility(ctx, id); err != nil {
-			return nil, err
+		if name == "" || language == "" {
+			return nil, fmt.Errorf("name and language are required")
 		}
-		return map[string]any{"status": "success", "message": fmt.Sprintf("Visibility toggled for tile %d.", id)}, nil
-
-	case "admin_clone_tile":
-		id := getInt(args, "id")
-		if id <= 0 {
-			return nil, fmt.Errorf("id must be a positive integer")
-		}
-		cloned, err := s.tileSvc.CloneTile(ctx, id)
+		cloned, err := s.tileSvc.CloneTileByName(ctx, name, language)
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"status": "success", "message": "Tile cloned successfully.", "tile": cloned}, nil
+
+	case "manage_content":
+		action := getString(args, "action")
+		file := filepath.Base(getString(args, "file"))
+
+		switch action {
+		case "list":
+			files, err := services.ListContentFiles(s.cfg.Server.WebDir)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"status": "success", "files": files}, nil
+
+		case "get":
+			if file == "" || file == "." {
+				return nil, fmt.Errorf("get requires file")
+			}
+			fPath := filepath.Join(s.cfg.Server.WebDir, "content", file)
+			data, err := os.ReadFile(fPath)
+			if err != nil {
+				return nil, fmt.Errorf("content file '%s' not found: %w", file, err)
+			}
+			info, _ := os.Stat(fPath)
+			mtime := int64(0)
+			if info != nil {
+				mtime = info.ModTime().Unix()
+			}
+			return map[string]any{
+				"status":  "success",
+				"file":    file,
+				"content": string(data),
+				"mtime":   mtime,
+			}, nil
+
+		case "save":
+			content := getString(args, "content")
+			expectedMtime := int64(getInt(args, "expected_mtime"))
+			if file == "" || file == "." {
+				return nil, fmt.Errorf("save requires file")
+			}
+			fPath := filepath.Join(s.cfg.Server.WebDir, "content", file)
+
+			if expectedMtime > 0 {
+				if info, err := os.Stat(fPath); err == nil {
+					if info.ModTime().Unix() > expectedMtime {
+						return nil, fmt.Errorf("conflict: content file '%s' has been modified on server (actual mtime %d > expected %d)", file, info.ModTime().Unix(), expectedMtime)
+					}
+				}
+			}
+
+			if err := os.WriteFile(fPath, []byte(content), 0644); err != nil {
+				return nil, err
+			}
+			info, _ := os.Stat(fPath)
+			mtime := int64(0)
+			if info != nil {
+				mtime = info.ModTime().Unix()
+			}
+			return map[string]any{"status": "success", "message": "Content file saved", "file": file, "mtime": mtime}, nil
+
+		case "delete":
+			if file == "" || file == "." {
+				return nil, fmt.Errorf("delete requires file")
+			}
+			if err := services.DeleteContentFile(s.cfg.Server.WebDir, file); err != nil {
+				return nil, err
+			}
+			return map[string]any{"status": "success", "message": fmt.Sprintf("Content file '%s' deleted", file)}, nil
+
+		case "rename":
+			newName := filepath.Base(getString(args, "new_name"))
+			if file == "" || file == "." || newName == "" || newName == "." {
+				return nil, fmt.Errorf("rename requires file and new_name")
+			}
+			if err := services.RenameContentFile(s.cfg.Server.WebDir, file, newName); err != nil {
+				return nil, err
+			}
+			return map[string]any{"status": "success", "message": fmt.Sprintf("Renamed '%s' to '%s'", file, newName)}, nil
+
+		default:
+			return nil, fmt.Errorf("unknown action '%s' for manage_content (must be list, get, save, delete, or rename)", action)
+		}
 
 	case "translate_tile":
 		tName := getString(args, "name")
@@ -885,55 +947,6 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]a
 			return map[string]string{"status": "success", "message": "Task cancelled successfully"}, nil
 		}
 		return nil, fmt.Errorf("task '%s' not running or not found", tID)
-
-	case "get_content_file":
-		file := filepath.Base(getString(args, "file"))
-		if file == "" || file == "." {
-			return nil, fmt.Errorf("file argument required")
-		}
-		fPath := filepath.Join(s.cfg.Server.WebDir, "content", file)
-		data, err := os.ReadFile(fPath)
-		if err != nil {
-			return nil, fmt.Errorf("content file '%s' not found: %w", file, err)
-		}
-		info, _ := os.Stat(fPath)
-		mtime := int64(0)
-		if info != nil {
-			mtime = info.ModTime().Unix()
-		}
-		return map[string]any{
-			"status":  "success",
-			"file":    file,
-			"content": string(data),
-			"mtime":   mtime,
-		}, nil
-
-	case "save_content_file":
-		file := filepath.Base(getString(args, "file"))
-		content := getString(args, "content")
-		expectedMtime := int64(getInt(args, "expected_mtime"))
-		if file == "" || file == "." {
-			return nil, fmt.Errorf("file argument required")
-		}
-		fPath := filepath.Join(s.cfg.Server.WebDir, "content", file)
-
-		if expectedMtime > 0 {
-			if info, err := os.Stat(fPath); err == nil {
-				if info.ModTime().Unix() > expectedMtime {
-					return nil, fmt.Errorf("conflict: content file '%s' has been modified on server (actual mtime %d > expected %d)", file, info.ModTime().Unix(), expectedMtime)
-				}
-			}
-		}
-
-		if err := os.WriteFile(fPath, []byte(content), 0644); err != nil {
-			return nil, err
-		}
-		info, _ := os.Stat(fPath)
-		mtime := int64(0)
-		if info != nil {
-			mtime = info.ModTime().Unix()
-		}
-		return map[string]any{"status": "success", "message": "Content file saved", "file": file, "mtime": mtime}, nil
 
 	case "suggest_meta":
 		name := getString(args, "name")

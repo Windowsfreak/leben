@@ -1091,7 +1091,7 @@ function setupEventHandlers() {
 
 // Verify admin session on load (the HttpOnly session cookie decides)
 function checkAdminStatus() {
-    fetch('/api/admin/tiles', { headers: buildApiHeaders() })
+    fetch('/api/admin/check', { headers: buildApiHeaders() })
         .then(res => {
             if (res.ok) {
                 lazyLoadAdmin(() => {

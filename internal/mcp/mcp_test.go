@@ -14,6 +14,7 @@ import (
 	"github.com/windowsfreak/leben/internal/config"
 	"github.com/windowsfreak/leben/internal/db"
 	"github.com/windowsfreak/leben/internal/models"
+	"github.com/windowsfreak/leben/internal/services"
 )
 
 func TestMCPInitializeAndPing(t *testing.T) {
@@ -55,21 +56,20 @@ func TestMCPToolsListPublicVsAdmin(t *testing.T) {
 
 	publicTools := s.GetTools(false)
 	for _, tool := range publicTools {
-		if strings.HasPrefix(tool.Name, "admin_") || tool.Name == "save_content_file" || tool.Name == "translate_tile" {
+		if strings.HasPrefix(tool.Name, "admin_") || tool.Name == "manage_content" || tool.Name == "translate_tile" {
 			t.Errorf("admin tool %s should not be listed publicly", tool.Name)
 		}
 	}
-	if len(publicTools) < 5 {
-		t.Errorf("expected at least 5 public tools, got %d", len(publicTools))
+	if len(publicTools) != 5 {
+		t.Errorf("expected 5 public tools, got %d", len(publicTools))
 	}
 
 	adminTools := s.GetTools(true)
 	expectedTools := []string{
 		"search_tiles", "get_similar_tiles", "get_tile", "get_tile_versions", "check_auth",
-		"admin_list_tiles", "admin_save_tile", "admin_update_tile_fields", "admin_delete_tile",
-		"admin_toggle_visibility", "admin_clone_tile", "translate_tile", "translation_status",
-		"refresh_vectors", "list_tasks", "cancel_task", "get_content_file",
-		"save_content_file", "suggest_meta", "edit_html_teaser", "get_frontend_config",
+		"save_tile", "update_tile_fields", "delete_tile", "clone_tile", "manage_content",
+		"translate_tile", "translation_status", "refresh_vectors", "list_tasks", "cancel_task",
+		"suggest_meta", "edit_html_teaser", "get_frontend_config",
 		"save_frontend_config", "manage_media", "manage_api_tokens",
 	}
 
@@ -83,8 +83,8 @@ func TestMCPToolsListPublicVsAdmin(t *testing.T) {
 			t.Errorf("missing expected tool in admin tools: %s", name)
 		}
 	}
-	if len(adminTools) < 20 {
-		t.Errorf("expected at least 20 tools for admin, got %d", len(adminTools))
+	if len(adminTools) != 21 {
+		t.Errorf("expected 21 tools for admin, got %d", len(adminTools))
 	}
 }
 
@@ -113,16 +113,16 @@ func TestMCPToolAuthCheck(t *testing.T) {
 
 	// Calling admin tool unauthenticated must fail
 	adminToolsToTest := []string{
-		"admin_list_tiles",
-		"admin_save_tile",
-		"admin_update_tile_fields",
-		"admin_delete_tile",
-		"save_content_file",
+		"save_tile",
+		"update_tile_fields",
+		"delete_tile",
+		"clone_tile",
+		"manage_content",
 		"manage_media",
 		"manage_api_tokens",
 	}
 	for _, toolName := range adminToolsToTest {
-		_, err = s.ExecuteTool(context.Background(), toolName, map[string]any{"id": 1}, false)
+		_, err = s.ExecuteTool(context.Background(), toolName, map[string]any{"name": "finance", "language": "de"}, false)
 		if err == nil {
 			t.Fatalf("expected error calling %s unauthenticated, got nil", toolName)
 		}
@@ -142,13 +142,14 @@ func TestMCPContentAndConfigTools(t *testing.T) {
 	}
 	s := NewServer(cfg, nil, nil, nil, nil, nil)
 
-	// 1. Save content file
-	saveRes, err := s.ExecuteTool(context.Background(), "save_content_file", map[string]any{
+	// 1. Save content file via manage_content
+	saveRes, err := s.ExecuteTool(context.Background(), "manage_content", map[string]any{
+		"action":  "save",
 		"file":    "test_de.html",
 		"content": "<p>Hello World</p>",
 	}, true)
 	if err != nil {
-		t.Fatalf("save_content_file failed: %v", err)
+		t.Fatalf("manage_content save failed: %v", err)
 	}
 	m := saveRes.(map[string]any)
 	mtimeVal, ok := m["mtime"].(int64)
@@ -156,16 +157,30 @@ func TestMCPContentAndConfigTools(t *testing.T) {
 		t.Fatalf("expected valid mtime, got %v", m["mtime"])
 	}
 
-	// 2. Get content file
-	getRes, err := s.ExecuteTool(context.Background(), "get_content_file", map[string]any{
-		"file": "test_de.html",
+	// 2. Get content file via manage_content
+	getRes, err := s.ExecuteTool(context.Background(), "manage_content", map[string]any{
+		"action": "get",
+		"file":   "test_de.html",
 	}, true)
 	if err != nil {
-		t.Fatalf("get_content_file failed: %v", err)
+		t.Fatalf("manage_content get failed: %v", err)
 	}
 	getMap := getRes.(map[string]any)
 	if getMap["content"] != "<p>Hello World</p>" {
 		t.Errorf("unexpected content: %v", getMap["content"])
+	}
+
+	// 3. List content files via manage_content
+	listRes, err := s.ExecuteTool(context.Background(), "manage_content", map[string]any{
+		"action": "list",
+	}, true)
+	if err != nil {
+		t.Fatalf("manage_content list failed: %v", err)
+	}
+	listMap := listRes.(map[string]any)
+	files, ok := listMap["files"].([]services.ContentFileInfo)
+	if !ok || len(files) == 0 {
+		t.Errorf("expected list to contain files, got %v", listMap["files"])
 	}
 
 	// 3. Save & Get frontend config
@@ -344,12 +359,12 @@ func TestMCPAdminEndpointForceShowsAllTools(t *testing.T) {
 		t.Fatalf("expected result map, got %T", resp.Result)
 	}
 	tools, ok := resMap["tools"].([]any)
-	if !ok || len(tools) < 20 {
-		t.Fatalf("expected all 24 tools on /api/admin/mcp, got %d", len(tools))
+	if !ok || len(tools) != 21 {
+		t.Fatalf("expected all 21 tools on /api/admin/mcp, got %d", len(tools))
 	}
 
 	// Calling admin tool on /api/admin/mcp unauthenticated must fail
-	callBody := `{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"admin_list_tiles","arguments":{}}}`
+	callBody := `{"jsonrpc":"2.0","id":11,"method":"tools/call","params":{"name":"delete_tile","arguments":{"name":"finance","language":"de"}}}`
 	callReq := httptest.NewRequest(http.MethodPost, "/api/admin/mcp", bytes.NewBufferString(callBody))
 	callReq.Header.Set("Content-Type", "application/json")
 	callRec := httptest.NewRecorder()

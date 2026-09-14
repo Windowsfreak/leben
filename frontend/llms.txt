@@ -14,13 +14,14 @@ Semantic vector search across all visible cards. No authentication required.
 - *(Omitting both `q` and `similar` returns all cards in curated `sort_order`).*
 - `offset`: Pagination offset (default `0`).
 - `limit`: Number of cards to return (default `20`; `0` returns all).
-- `lang`: Language preference (default `de`): `de`, `en`, `fr`, `es`, `pl`, `ro`, `sq`, `tr`, `ru`, `uk`, `ar`.
+- `lang`: Language preference (default `de`): `de`, `en`, `fr`, `es`, `pl`, `ro`, `sq`, `tr`, `ru`, `uk`, `ar`, or `all` for all language versions.
 - `detail`: Detail level (default `snippet`).
-  - `min`: metadata only (`name`, `tags`, `type`, `score`, `created_at`)
-  - `snippet`: metadata + short summary cropped to 70 chars
+  - `min`: core metadata only (`name`, `lang`, `title`, `tags`, `type`, `date`, `score`)
+  - `snippet`: metadata + short summary cropped to 120 chars
   - `summary`: metadata + full summary
-  - `full`: metadata + summary + full article body / HTML teaser / link
-- `crop`: Character limit for summary/body (default `70` for `detail=snippet`, `0` = uncropped).
+  - `full`: metadata + summary + full article body / HTML teaser / link (plus admin fields if authenticated)
+- `crop`: Character limit for summary/body (default `120` for `detail=snippet`, `0` = uncropped).
+- `fields`: Comma-separated sparse field projection (e.g. `fields=name,title,summary`).
 - `format`: `json` (default) or `toon`. Header `Accept: text/x-toon` also selects TOON.
 
 ### Optional Headers
@@ -28,8 +29,8 @@ Semantic vector search across all visible cards. No authentication required.
 
 ### Response Formats
 - **JSON**: `{"status":"success","query":"...","lang":"de","format":"json","count":N,"tiles":[TileDTO...]}`
-  - TileDTO schema: `index`, `id`, `name`, `lang`, `title`, `tags`, `type` ("doc"|"link" or "doc(size)"), `summary`, `content`, `content_file`, `link`, `date`, `score` (0..1 relevance float), `accent_color`, `background`.
-  - *(For non-admin frontend requests with header `X-Purpose: frontend`, internal keys like `id`, `summary`, `tags`, `score`, and `index` are omitted).*
+  - TileDTO schema: `index`, `name`, `lang`, `title`, `tags`, `type` ("doc"|"link" or "doc(size)"), `summary`, `content`, `content_file`, `link`, `date`, `score` (0..1 relevance float), `accent_color`, `background`, plus `visible`, `secret`, `sort_order` for admin callers.
+  - *(For non-admin frontend requests with header `X-Purpose: frontend`, internal keys like `summary`, `tags`, `score`, and `index` are omitted).*
 - **TOON** (`?format=toon` or `Accept: text/x-toon`): Tabular plain-text output (commented header line + one card block per card). Optimized for low token usage in LLM prompts.
 
 ## Other Public Endpoints
