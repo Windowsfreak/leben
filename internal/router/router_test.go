@@ -308,7 +308,40 @@ func TestFrontendTileSerialization(t *testing.T) {
 		}
 	}
 
-	// 2. Admin frontend DTO
+	// Verify protected is omitted when tile has no secret
+	if _, exists := publicMap["protected"]; exists {
+		t.Errorf("expected key 'protected' to be omitted when tile is not secret, but was present")
+	}
+
+	// 2. Public Tile with Secret (unlocked via X-Reference, secret wiped but protected set)
+	secretTile := &models.Tile{
+		ID:          43,
+		Name:        "secret-card",
+		Language:    "de",
+		Title:       "Secret Tile",
+		Visible:     true,
+		Protected:   true,
+		Secret:      "", // already wiped by TileService for non-admin
+		AccentColor: "#fbbf24",
+		Type:        "doc",
+	}
+	secretPublicDto := toFrontendTileDTO(secretTile, false)
+	secretPublicData, err := json.Marshal(secretPublicDto)
+	if err != nil {
+		t.Fatalf("failed to marshal secret public TileDTO: %v", err)
+	}
+	var secretPublicMap map[string]any
+	if err := json.Unmarshal(secretPublicData, &secretPublicMap); err != nil {
+		t.Fatalf("failed to unmarshal secret public JSON: %v", err)
+	}
+	if val, ok := secretPublicMap["protected"].(bool); !ok || !val {
+		t.Errorf("expected protected=true for secretPublicDto, got %v", secretPublicMap["protected"])
+	}
+	if _, exists := secretPublicMap["secret"]; exists {
+		t.Errorf("secret string must never be serialized for public callers")
+	}
+
+	// 3. Admin frontend DTO
 	adminDto := toFrontendTileDTO(tile, true)
 	adminData, err := json.Marshal(adminDto)
 	if err != nil {

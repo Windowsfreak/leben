@@ -151,6 +151,7 @@ func (s *TileService) SearchTiles(ctx context.Context, prefLang, queryStr string
 			if background.Valid {
 				tile.Background = background.String
 			}
+			tile.Protected = (tile.Secret != "")
 			if !showInvisible {
 				tile.Secret = ""
 			}
@@ -313,6 +314,7 @@ func (s *TileService) GetSimilarTiles(ctx context.Context, name, prefLang string
 		if background.Valid {
 			tile.Background = background.String
 		}
+		tile.Protected = (tile.Secret != "")
 		if !showInvisible {
 			tile.Secret = ""
 		}

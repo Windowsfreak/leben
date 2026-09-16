@@ -19,6 +19,7 @@ type Tile struct {
 	ContentFile string    `json:"content_file,omitempty"`
 	Visible     bool      `json:"visible"`
 	Secret      string    `json:"secret,omitempty"`
+	Protected   bool      `json:"protected,omitempty"`
 	AccentColor string    `json:"accent_color"`
 	Background  string    `json:"background,omitempty"`
 	Embedding   []float64 `json:"-"`
@@ -48,6 +49,7 @@ type TileDTO struct {
 	Background  string   `json:"background,omitempty" toon:"background,omitempty"`
 	Visible     *bool    `json:"visible,omitempty" toon:"visible,omitempty"`
 	Secret      string   `json:"secret,omitempty" toon:"secret,omitempty"`
+	Protected   bool     `json:"protected,omitempty" toon:"-"`
 	SortOrder   int      `json:"sort_order,omitempty" toon:"sort_order,omitempty"`
 }
 

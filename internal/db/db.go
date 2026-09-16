@@ -248,6 +248,7 @@ func ScanTile(scanner interface{ Scan(dest ...any) error }) (*models.Tile, error
 	if background.Valid {
 		tile.Background = background.String
 	}
+	tile.Protected = (tile.Secret != "")
 
 	return &tile, nil
 }

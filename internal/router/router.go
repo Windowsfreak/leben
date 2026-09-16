@@ -323,6 +323,7 @@ func toFrontendTileDTO(t *models.Tile, isAdmin bool) models.TileDTO {
 		ContentFile: t.ContentFile,
 		AccentColor: t.AccentColor,
 		Background:  t.Background,
+		Protected:   t.Protected || t.Secret != "",
 	}
 	if isAdmin {
 		visibleCopy := t.Visible

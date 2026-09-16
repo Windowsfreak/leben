@@ -481,8 +481,17 @@ function createTileElement(tile, isMini = false) {
     applyTileTheme(tileDiv, tile.background, !isMini);
 
     // Opacity overlay for invisible tiles in admin mode
-    if (!tile.visible) {
+    if (tile.visible === false) {
         tileDiv.classList.add('invisible-tile');
+    }
+
+    // Secret indicator icon for protected tiles (unlocked via X-Reference or shown in admin mode)
+    if (tile.protected || (isAdmin && tile.secret)) {
+        const secretIndicator = document.createElement('div');
+        secretIndicator.className = 'tile-secret-indicator';
+        secretIndicator.title = (isAdmin && tile.secret) ? `Geschützt (Code: ${tile.secret})` : 'Exklusiver Inhalt';
+        secretIndicator.innerHTML = '<i class="fa-solid fa-key"></i>';
+        tileDiv.appendChild(secretIndicator);
     }
     
     const contentWrapper = document.createElement('div');
@@ -511,6 +520,8 @@ function createTileElement(tile, isMini = false) {
 
 let activeLightboxTile = null;
 let isProgrammaticRouting = false;
+let inFlightRouteKey = null;
+let similarTilesController = null;
 
 // Format hash for tile depending on default app language vs tile language
 function getHashForTile(tile) {
@@ -607,6 +618,7 @@ function handleURLRouting() {
     if (route.name) {
         // "Language would be stuffed into the call, if not attached to the url"
         const fetchLang = route.lang || lang;
+        const routeKey = `${route.name.toLowerCase()}:${fetchLang}`;
         
         // Skip re-fetching if active tile is already showing this tile and language
         if (activeLightboxTile && 
@@ -614,6 +626,12 @@ function handleURLRouting() {
             activeLightboxTile.lang === fetchLang) {
             return;
         }
+
+        // Prevent duplicate concurrent in-flight requests for the same tile and language
+        if (inFlightRouteKey === routeKey) {
+            return;
+        }
+        inFlightRouteKey = routeKey;
 
         fetch(`/api/tiles/${encodeURIComponent(route.name)}?lang=${encodeURIComponent(fetchLang)}`, { headers: buildApiHeaders() })
             .then(res => res.json())
@@ -644,6 +662,11 @@ function handleURLRouting() {
                     q = route.name;
                     resetAndLoad();
                 }
+            })
+            .finally(() => {
+                if (inFlightRouteKey === routeKey) {
+                    inFlightRouteKey = null;
+                }
             });
     } else {
         // No tile specified in URL: close lightbox if open
@@ -668,6 +691,14 @@ function openLightbox(tile, updateHistory = true) {
     if (infoPanel) infoPanel.style.display = 'none';
     if (infoBtn) infoBtn.classList.remove('active');
     if (dialogBody) dialogBody.scrollTop = 0;
+
+    // Abort any pending similar-tiles request from previous tile and purge existing see-also sections
+    if (similarTilesController) {
+        similarTilesController.abort();
+        similarTilesController = null;
+    }
+    const staleSections = (dialogBody || document).querySelectorAll('.see-also-section');
+    staleSections.forEach(el => el.remove());
     
     header.textContent = tile.title;
     articleContainer.innerHTML = '<div style="display:flex; justify-content:center; padding: 2rem;"><div class="spinner active"></div></div>';
@@ -891,10 +922,26 @@ function renderLightboxInfoPanel(versions) {
 
 // Fetch and append similar tiles at the bottom of the lightbox
 function loadSimilarTiles(tileName, targetBody) {
-    fetch(`/api/tiles?similar=${encodeURIComponent(tileName)}&lang=${lang}&limit=4`, { headers: buildApiHeaders() })
+    if (similarTilesController) {
+        similarTilesController.abort();
+    }
+    similarTilesController = new AbortController();
+    const currentController = similarTilesController;
+
+    fetch(`/api/tiles?similar=${encodeURIComponent(tileName)}&lang=${lang}&limit=4`, { 
+        headers: buildApiHeaders(),
+        signal: currentController.signal 
+    })
         .then(res => res.json())
         .then(res => {
+            if (currentController.signal.aborted) return;
+            if (!activeLightboxTile || activeLightboxTile.name.toLowerCase() !== tileName.toLowerCase()) return;
+
             if (res.status === 'success' && res.tiles && res.tiles.length > 0) {
+                // Ensure no existing see-also section is duplicated in targetBody or the dialog
+                const existingSections = (targetBody || document).querySelectorAll('.see-also-section');
+                existingSections.forEach(el => el.remove());
+
                 const section = document.createElement('div');
                 section.className = 'see-also-section';
                 const heroDetails = appConfig && appConfig.hero ? (appConfig.hero[lang] || appConfig.hero['de'] || {}) : {};
@@ -913,7 +960,11 @@ function loadSimilarTiles(tileName, targetBody) {
                 targetBody.appendChild(section);
             }
         })
-        .catch(err => console.error("Error loading similar tiles:", err));
+        .catch(err => {
+            if (err.name !== 'AbortError') {
+                console.error("Error loading similar tiles:", err);
+            }
+        });
 }
 
 // Setup Scroll Observer for infinite scroll
@@ -988,10 +1039,14 @@ function setupEventHandlers() {
         });
     }
 
-    // Back-navigation history event listeners
+    // Back-navigation history event listeners (debounced to coalesce synchronous popstate + hashchange events)
+    let navEventTimer = null;
     const handleNavEvent = () => {
         if (!isProgrammaticRouting) {
-            handleURLRouting();
+            clearTimeout(navEventTimer);
+            navEventTimer = setTimeout(() => {
+                handleURLRouting();
+            }, 10);
         }
     };
     window.addEventListener('popstate', handleNavEvent);
