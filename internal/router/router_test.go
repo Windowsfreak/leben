@@ -546,3 +546,47 @@ func TestMCPAdminRouterEndpoints(t *testing.T) {
 	}
 }
 
+func TestAdminPatchTilesEndpoints(t *testing.T) {
+	secretToken := "test_secret_admin_token"
+	cfg := &config.Config{
+		Server: config.ServerConfig{
+			WebDir: t.TempDir(),
+		},
+		Admin: config.AdminConfig{},
+	}
+	authModule := auth.New(cfg, nil)
+	authModule.SetTestToken(secretToken)
+	r := New(cfg, authModule, nil, nil, nil, nil, nil, nil)
+
+	// Unauthorized request should fail with 401
+	body := `{"tiles":[{"name":"finance","lang":"de","background":"url(test)"}]}`
+	req := httptest.NewRequest(http.MethodPatch, "/api/admin/tiles", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 unauthorized, got %d", rec.Code)
+	}
+
+	// Authorized request with empty tiles array should fail with 400
+	req = httptest.NewRequest(http.MethodPatch, "/api/admin/tiles", bytes.NewBufferString(`{"tiles":[]}`))
+	req.Header.Set("Authorization", "Bearer "+secretToken)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 bad request for empty tiles, got %d", rec.Code)
+	}
+
+	// Authorized request with invalid JSON should fail with 400
+	req = httptest.NewRequest(http.MethodPatch, "/api/admin/tiles", bytes.NewBufferString(`invalid json`))
+	req.Header.Set("Authorization", "Bearer "+secretToken)
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	r.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 bad request for invalid json, got %d", rec.Code)
+	}
+}
+
+

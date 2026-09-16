@@ -1,6 +1,7 @@
 package router
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -127,6 +128,7 @@ func (r *Router) setupRoutes() {
 	r.router.GET("/api/admin/check", r.wrapAuth(r.handleAdminCheck))
 	r.router.POST("/api/admin/tiles", r.wrapAuth(r.handleAdminSaveTile))
 	r.router.PUT("/api/admin/tiles", r.wrapAuth(r.handleAdminSaveTile))
+	r.router.PATCH("/api/admin/tiles", r.wrapAuth(r.handleAdminPatchTiles))
 	r.router.POST("/api/admin/tiles/refresh-vectors", r.wrapAuth(r.handleAdminRefreshVectors))
 
 	r.router.DELETE("/api/admin/tile/:id", r.wrapAuth(r.handleAdminDeleteTile))
@@ -228,10 +230,33 @@ func (r *Router) handleGetTiles(w http.ResponseWriter, req *http.Request, _ http
 	showInvisible := r.auth.IsAdmin(req)
 	refCodes := getRequestReferenceCodes(req)
 
+	namesParam := strings.TrimSpace(qParams.Get("names"))
+	if namesParam == "" {
+		namesParam = strings.TrimSpace(qParams.Get("tiles"))
+	}
+
 	var tiles []*models.Tile
 	var err error
 
-	if similarName != "" {
+	if namesParam != "" {
+		parts := strings.Split(namesParam, ",")
+		specs := make([]models.TileSpec, 0, len(parts))
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			spec := models.TileSpec{Name: p}
+			if idx := strings.Index(p, ":"); idx != -1 {
+				spec.Name = strings.TrimSpace(p[:idx])
+				spec.Lang = strings.ToLower(strings.TrimSpace(p[idx+1:]))
+			}
+			specs = append(specs, spec)
+		}
+		exactParam := strings.ToLower(strings.TrimSpace(qParams.Get("exact")))
+		exact := exactParam == "true" || exactParam == "1" || strings.EqualFold(qParams.Get("fallback"), "false")
+		tiles, err = r.tileSvc.GetTilesBySpec(req.Context(), specs, lang, exact, refCodes, showInvisible)
+	} else if similarName != "" {
 		tiles, err = r.tileSvc.GetSimilarTiles(req.Context(), similarName, lang, refCodes, showInvisible, limit, offset)
 	} else {
 		tiles, err = r.tileSvc.SearchTiles(req.Context(), lang, qStr, refCodes, showInvisible, offset, limit)
@@ -316,13 +341,29 @@ func toRichTileDTO(t *models.Tile, idx int, detail string, crop int, contentsDir
 func (r *Router) handleGetTileByName(w http.ResponseWriter, req *http.Request, ps httprouter.Params) {
 	name := ps.ByName("name")
 	lang := strings.ToLower(strings.TrimSpace(req.URL.Query().Get("lang")))
+	if idx := strings.Index(name, ":"); idx != -1 {
+		if lang == "" {
+			lang = strings.ToLower(strings.TrimSpace(name[idx+1:]))
+		}
+		name = strings.TrimSpace(name[:idx])
+	}
 	if lang == "" {
 		lang = "de"
 	}
 	showInvisible := r.auth.IsAdmin(req)
 	refCodes := getRequestReferenceCodes(req)
 
-	tile, err := r.tileSvc.GetTile(req.Context(), name, lang, refCodes, showInvisible)
+	exactParam := strings.ToLower(strings.TrimSpace(req.URL.Query().Get("exact")))
+	exact := exactParam == "true" || exactParam == "1" || strings.EqualFold(req.URL.Query().Get("fallback"), "false")
+
+	var tile *models.Tile
+	var err error
+	if exact {
+		tile, err = r.tileSvc.GetTileExact(req.Context(), name, lang, refCodes, showInvisible)
+	} else {
+		tile, err = r.tileSvc.GetTile(req.Context(), name, lang, refCodes, showInvisible)
+	}
+
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) || errors.Is(err, services.ErrTileNotFound) || strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "no rows") {
 			writeError(w, http.StatusNotFound, fmt.Sprintf("Tile '%s' not found", name))
@@ -501,6 +542,44 @@ func (r *Router) handleAdminSaveTile(w http.ResponseWriter, req *http.Request) {
 		"message": "Tile saved successfully.",
 		"tile":    tile,
 	})
+}
+
+func (r *Router) handleAdminPatchTiles(w http.ResponseWriter, req *http.Request) {
+	var body struct {
+		Tiles []models.TilePatchDTO `json:"tiles"`
+	}
+
+	data, err := io.ReadAll(req.Body)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Failed to read request body.")
+		return
+	}
+
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) > 0 && trimmed[0] == '[' {
+		if err := json.Unmarshal(trimmed, &body.Tiles); err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid JSON array: %v", err))
+			return
+		}
+	} else {
+		if err := json.Unmarshal(trimmed, &body); err != nil {
+			writeError(w, http.StatusBadRequest, fmt.Sprintf("Invalid JSON body: %v", err))
+			return
+		}
+	}
+
+	if len(body.Tiles) == 0 {
+		writeError(w, http.StatusBadRequest, "No tiles provided to patch. Provide a 'tiles' array.")
+		return
+	}
+
+	res, err := r.tileSvc.PatchTiles(req.Context(), body.Tiles)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, res)
 }
 
 func (r *Router) handleAdminDeleteTile(w http.ResponseWriter, req *http.Request) {

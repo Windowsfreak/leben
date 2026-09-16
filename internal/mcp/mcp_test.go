@@ -67,7 +67,7 @@ func TestMCPToolsListPublicVsAdmin(t *testing.T) {
 	adminTools := s.GetTools(true)
 	expectedTools := []string{
 		"search_tiles", "get_similar_tiles", "get_tile", "get_tile_versions", "check_auth",
-		"save_tile", "update_tile_fields", "delete_tile", "clone_tile", "manage_content",
+		"save_tile", "update_tile_fields", "delete_tile", "manage_content",
 		"translate_tile", "translation_status", "refresh_vectors", "list_tasks", "cancel_task",
 		"suggest_meta", "edit_html_teaser", "get_frontend_config",
 		"save_frontend_config", "manage_media", "manage_api_tokens",
@@ -83,8 +83,8 @@ func TestMCPToolsListPublicVsAdmin(t *testing.T) {
 			t.Errorf("missing expected tool in admin tools: %s", name)
 		}
 	}
-	if len(adminTools) != 21 {
-		t.Errorf("expected 21 tools for admin, got %d", len(adminTools))
+	if len(adminTools) != 20 {
+		t.Errorf("expected 20 tools for admin, got %d", len(adminTools))
 	}
 }
 
@@ -116,7 +116,6 @@ func TestMCPToolAuthCheck(t *testing.T) {
 		"save_tile",
 		"update_tile_fields",
 		"delete_tile",
-		"clone_tile",
 		"manage_content",
 		"manage_media",
 		"manage_api_tokens",
@@ -359,8 +358,8 @@ func TestMCPAdminEndpointForceShowsAllTools(t *testing.T) {
 		t.Fatalf("expected result map, got %T", resp.Result)
 	}
 	tools, ok := resMap["tools"].([]any)
-	if !ok || len(tools) != 21 {
-		t.Fatalf("expected all 21 tools on /api/admin/mcp, got %d", len(tools))
+	if !ok || len(tools) != 20 {
+		t.Fatalf("expected all 20 tools on /api/admin/mcp, got %d", len(tools))
 	}
 
 	// Calling admin tool on /api/admin/mcp unauthenticated must fail

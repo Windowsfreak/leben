@@ -91,12 +91,11 @@ func (s *Server) GetTools(isAdmin bool) []models.MCPTool {
 		},
 		{
 			Name:        "get_tile",
-			Description: "Fetch full metadata and optional detailed article content for a specific card by name and language.",
+			Description: "Fetch full metadata and optional detailed article content for a specific card by compound 'slug:lang' identifier (e.g. 'finance:de').",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"name":            map[string]any{"type": "string", "description": "Card name, e.g. 'finance'"},
-					"lang":            map[string]any{"type": "string", "enum": langs, "description": "Language code (default 'de')"},
+					"name":            map[string]any{"type": "string", "description": "Card identifier in compound 'slug:lang' format (e.g. 'finance:de')"},
 					"include_content": map[string]any{"type": "boolean", "description": "Whether to include full HTML content from file"},
 				},
 				"required": []string{"name"},
@@ -104,11 +103,11 @@ func (s *Server) GetTools(isAdmin bool) []models.MCPTool {
 		},
 		{
 			Name:        "get_tile_versions",
-			Description: "List all existing language versions of a card.",
+			Description: "List all existing language versions of a card. Supports compound 'slug:lang' syntax (slug is extracted).",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"name": map[string]any{"type": "string", "description": "Name of the card"},
+					"name": map[string]any{"type": "string", "description": "Name of the card (slug or 'slug:lang')"},
 				},
 				"required": []string{"name"},
 			},
@@ -130,12 +129,11 @@ func (s *Server) GetTools(isAdmin bool) []models.MCPTool {
 	adminTools := []models.MCPTool{
 		{
 			Name:        "save_tile",
-			Description: "Create or update a card. Uses (name, language) as unique key. Regenerates the semantic embedding.",
+			Description: "Create or update a card. Uses compound 'slug:lang' format in 'name' (e.g. 'finance:de'). Regenerates semantic embedding only if text changed.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"name":         map[string]any{"type": "string", "description": "Unique card name (slug), e.g. 'finance'"},
-					"language":     map[string]any{"type": "string", "description": "Language code, e.g. 'de' or 'en' (required)"},
+					"name":         map[string]any{"type": "string", "description": "Card identifier in compound 'slug:lang' format (e.g. 'finance:de')"},
 					"title":        map[string]any{"type": "string", "description": "Display title"},
 					"summary":      map[string]any{"type": "string", "description": "High-level summary used for search embeddings and snippets"},
 					"html_teaser":  map[string]any{"type": "string", "description": "HTML teaser shown on the card front"},
@@ -149,55 +147,52 @@ func (s *Server) GetTools(isAdmin bool) []models.MCPTool {
 					"visible":      map[string]any{"type": "boolean", "description": "Visible on the public site (default true)"},
 					"sort_order":   map[string]any{"type": "integer", "description": "Curated order (default 100)"},
 				},
-				"required": []string{"name", "language", "title"},
+				"required": []string{"name", "title"},
 			},
 		},
 		{
 			Name:        "update_tile_fields",
-			Description: "Partially update one or more fields on an existing tile without overwriting unmentioned fields. Identify strictly by `name` and `language`. Regenerates embedding.",
+			Description: "Batch update one or more fields on tiles in a single atomic transaction. Uses compound 'slug:lang' in 'name'. Unmentioned fields are preserved.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"name":         map[string]any{"type": "string", "description": "Card unique name / slug"},
-					"language":     map[string]any{"type": "string", "description": "Language code, e.g. 'de' or 'en'"},
-					"title":        map[string]any{"type": "string", "description": "Display title"},
-					"summary":      map[string]any{"type": "string", "description": "High-level summary"},
-					"html_teaser":  map[string]any{"type": "string", "description": "HTML shown on the card front"},
-					"content_file": map[string]any{"type": "string", "description": "Filename of the HTML article under /content/"},
-					"tags":         map[string]any{"type": "string", "description": "Comma-delimited tags"},
-					"type":         map[string]any{"type": "string", "enum": []string{"doc", "link"}, "description": "Card type"},
-					"link":         map[string]any{"type": "string", "description": "External URL when type=link"},
-					"secret":       map[string]any{"type": "string", "description": "Reference code required to unlock"},
-					"accent_color": map[string]any{"type": "string", "description": "Accent color"},
-					"background":   map[string]any{"type": "string", "description": "Background image path or CSS"},
-					"visible":      map[string]any{"type": "boolean", "description": "Visible on the public site"},
-					"sort_order":   map[string]any{"type": "integer", "description": "Curated order"},
+					"tiles": map[string]any{
+						"type":        "array",
+						"description": "Batch list of partial tile updates. Each item identifies the tile by compound 'slug:lang'.",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"name":         map[string]any{"type": "string", "description": "Card identifier in compound 'slug:lang' syntax (e.g. 'finance:de')"},
+								"new_name":     map[string]any{"type": "string", "description": "Optional new slug to rename card"},
+								"title":        map[string]any{"type": "string", "description": "Display title"},
+								"summary":      map[string]any{"type": "string", "description": "High-level summary"},
+								"html_teaser":  map[string]any{"type": "string", "description": "HTML shown on card front"},
+								"content_file": map[string]any{"type": "string", "description": "Filename in /content/"},
+								"tags":         map[string]any{"type": "string", "description": "Comma-delimited tags"},
+								"type":         map[string]any{"type": "string", "enum": []string{"doc", "link"}},
+								"link":         map[string]any{"type": "string"},
+								"secret":       map[string]any{"type": "string"},
+								"accent_color": map[string]any{"type": "string"},
+								"background":   map[string]any{"type": "string"},
+								"visible":      map[string]any{"type": "boolean"},
+								"sort_order":   map[string]any{"type": "integer"},
+							},
+							"required": []string{"name"},
+						},
+					},
 				},
-				"required": []string{"name", "language"},
+				"required": []string{"tiles"},
 			},
 		},
 		{
 			Name:        "delete_tile",
-			Description: "Permanently delete a card by name and language.",
+			Description: "Permanently delete a card by compound 'slug:lang' identifier (e.g. 'finance:de').",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"name":     map[string]any{"type": "string", "description": "Card name (slug)"},
-					"language": map[string]any{"type": "string", "description": "Language code, e.g. 'de' or 'en'"},
+					"name": map[string]any{"type": "string", "description": "Card identifier in compound 'slug:lang' format (e.g. 'finance:de')"},
 				},
-				"required": []string{"name", "language"},
-			},
-		},
-		{
-			Name:        "clone_tile",
-			Description: "Duplicate a card as '<name>-copy' for the specified language.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"name":     map[string]any{"type": "string", "description": "Card name (slug)"},
-					"language": map[string]any{"type": "string", "description": "Language code, e.g. 'de' or 'en'"},
-				},
-				"required": []string{"name", "language"},
+				"required": []string{"name"},
 			},
 		},
 		{
@@ -565,7 +560,6 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]a
 		"save_tile":            true,
 		"update_tile_fields":   true,
 		"delete_tile":          true,
-		"clone_tile":           true,
 		"manage_content":       true,
 		"translate_tile":       true,
 		"translation_status":   true,
@@ -653,9 +647,10 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]a
 
 	case "get_tile":
 		tName := getString(args, "name")
-		lang := getString(args, "lang")
-		if lang == "" {
-			lang = "de"
+		lang := "de"
+		if idx := strings.Index(tName, ":"); idx != -1 {
+			lang = strings.ToLower(strings.TrimSpace(tName[idx+1:]))
+			tName = strings.ToLower(strings.TrimSpace(tName[:idx]))
 		}
 		tile, err := s.tileSvc.GetTile(ctx, tName, lang, nil, isAdmin)
 		if err != nil {
@@ -684,6 +679,9 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]a
 
 	case "get_tile_versions":
 		tName := getString(args, "name")
+		if idx := strings.Index(tName, ":"); idx != -1 {
+			tName = strings.ToLower(strings.TrimSpace(tName[:idx]))
+		}
 		versions, err := s.tileSvc.GetTileInfo(ctx, tName, nil, isAdmin)
 		if err != nil {
 			return nil, err
@@ -707,16 +705,15 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]a
 		return map[string]any{"authenticated": false, "role": "anonymous"}, nil
 
 	case "save_tile":
-		name := getString(args, "name")
-		language := getString(args, "language")
-		if language == "" {
-			language = getString(args, "lang")
+		rawName := getString(args, "name")
+		idx := strings.Index(rawName, ":")
+		if idx == -1 {
+			return nil, fmt.Errorf("name must be in compound 'slug:lang' format (e.g. 'finance:de')")
 		}
-		if name == "" {
-			return nil, fmt.Errorf("name is required")
-		}
-		if language == "" {
-			return nil, fmt.Errorf("language is required (no default)")
+		name := strings.TrimSpace(rawName[:idx])
+		language := strings.ToLower(strings.TrimSpace(rawName[idx+1:]))
+		if name == "" || language == "" {
+			return nil, fmt.Errorf("invalid name: both slug and language are required (e.g. 'finance:de')")
 		}
 
 		tile := models.Tile{
@@ -738,93 +735,60 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]a
 		if err := s.tileSvc.SaveTile(ctx, &tile); err != nil {
 			return nil, err
 		}
-		return map[string]any{"status": "success", "message": "Tile saved.", "name": tile.Name, "lang": tile.Language}, nil
+		return map[string]any{"status": "success", "message": fmt.Sprintf("Tile '%s:%s' saved.", tile.Name, tile.Language), "name": tile.Name, "lang": tile.Language}, nil
 
 	case "update_tile_fields":
-		name := getString(args, "name")
-		language := getString(args, "language")
-		if language == "" {
-			language = getString(args, "lang")
-		}
-		if name == "" || language == "" {
-			return nil, fmt.Errorf("name and language are required")
+		var patches []models.TilePatchDTO
+		if tilesRaw, ok := args["tiles"]; ok {
+			b, err := json.Marshal(tilesRaw)
+			if err != nil {
+				return nil, fmt.Errorf("invalid tiles payload: %w", err)
+			}
+			if err := json.Unmarshal(b, &patches); err != nil {
+				return nil, fmt.Errorf("failed to parse tiles: %w", err)
+			}
+		} else {
+			b, err := json.Marshal(args)
+			if err != nil {
+				return nil, fmt.Errorf("invalid args: %w", err)
+			}
+			var p models.TilePatchDTO
+			if err := json.Unmarshal(b, &p); err != nil {
+				return nil, fmt.Errorf("failed to parse tile patch: %w", err)
+			}
+			patches = append(patches, p)
 		}
 
-		existing, err := s.tileSvc.GetTile(ctx, name, language, nil, true)
+		if len(patches) == 0 {
+			return nil, fmt.Errorf("no tiles provided to update")
+		}
+
+		batchRes, err := s.tileSvc.PatchTiles(ctx, patches)
 		if err != nil {
-			return nil, fmt.Errorf("tile '%s' (lang: %s) not found: %w", name, language, err)
-		}
-
-		if val, ok := args["title"]; ok {
-			existing.Title = fmt.Sprintf("%v", val)
-		}
-		if val, ok := args["summary"]; ok {
-			existing.Summary = fmt.Sprintf("%v", val)
-		}
-		if val, ok := args["html_teaser"]; ok {
-			existing.HTMLTeaser = fmt.Sprintf("%v", val)
-		}
-		if val, ok := args["content_file"]; ok {
-			existing.ContentFile = fmt.Sprintf("%v", val)
-		}
-		if val, ok := args["tags"]; ok {
-			existing.Tags = fmt.Sprintf("%v", val)
-		}
-		if val, ok := args["type"]; ok {
-			existing.Type = fmt.Sprintf("%v", val)
-		}
-		if val, ok := args["link"]; ok {
-			existing.Link = fmt.Sprintf("%v", val)
-		}
-		if val, ok := args["secret"]; ok {
-			existing.Secret = fmt.Sprintf("%v", val)
-		}
-		if val, ok := args["accent_color"]; ok {
-			existing.AccentColor = fmt.Sprintf("%v", val)
-		}
-		if val, ok := args["background"]; ok {
-			existing.Background = fmt.Sprintf("%v", val)
-		}
-		if _, ok := args["visible"]; ok {
-			existing.Visible = getBool(args, "visible", true)
-		}
-		if _, ok := args["sort_order"]; ok {
-			existing.SortOrder = getInt(args, "sort_order")
-		}
-
-		if err := s.tileSvc.SaveTile(ctx, existing); err != nil {
 			return nil, err
 		}
-		return map[string]any{"status": "success", "message": "Tile updated.", "tile": existing}, nil
+		return map[string]any{
+			"status":  batchRes.Status,
+			"message": fmt.Sprintf("%d tile(s) updated successfully.", batchRes.Succeeded),
+			"updated": batchRes.Succeeded,
+			"results": batchRes.Results,
+		}, nil
 
 	case "delete_tile":
-		name := getString(args, "name")
-		language := getString(args, "language")
-		if language == "" {
-			language = getString(args, "lang")
+		rawName := getString(args, "name")
+		idx := strings.Index(rawName, ":")
+		if idx == -1 {
+			return nil, fmt.Errorf("name must be in compound 'slug:lang' format (e.g. 'finance:de')")
 		}
+		name := strings.TrimSpace(rawName[:idx])
+		language := strings.ToLower(strings.TrimSpace(rawName[idx+1:]))
 		if name == "" || language == "" {
-			return nil, fmt.Errorf("name and language are required")
+			return nil, fmt.Errorf("invalid name: both slug and language are required (e.g. 'finance:de')")
 		}
 		if err := s.tileSvc.DeleteTileByName(ctx, name, language); err != nil {
 			return nil, err
 		}
-		return map[string]any{"status": "success", "message": fmt.Sprintf("Tile '%s' (%s) deleted.", name, language)}, nil
-
-	case "clone_tile":
-		name := getString(args, "name")
-		language := getString(args, "language")
-		if language == "" {
-			language = getString(args, "lang")
-		}
-		if name == "" || language == "" {
-			return nil, fmt.Errorf("name and language are required")
-		}
-		cloned, err := s.tileSvc.CloneTileByName(ctx, name, language)
-		if err != nil {
-			return nil, err
-		}
-		return map[string]any{"status": "success", "message": "Tile cloned successfully.", "tile": cloned}, nil
+		return map[string]any{"status": "success", "message": fmt.Sprintf("Tile '%s:%s' deleted.", name, language)}, nil
 
 	case "manage_content":
 		action := getString(args, "action")
@@ -949,21 +913,18 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]a
 		return nil, fmt.Errorf("task '%s' not running or not found", tID)
 
 	case "suggest_meta":
-		name := getString(args, "name")
+		rawName := getString(args, "name")
 		title := getString(args, "title")
-		language := getString(args, "language")
-		if language == "" {
-			language = getString(args, "lang")
-		}
 		contentFile := getString(args, "content_file")
 		htmlTeaser := getString(args, "html_teaser")
 
-		if language == "" {
-			if strings.HasSuffix(contentFile, "_en.html") || strings.HasSuffix(name, "_en") {
-				language = "en"
-			} else {
-				language = "de"
-			}
+		name := rawName
+		language := "de"
+		if idx := strings.Index(rawName, ":"); idx != -1 {
+			language = strings.ToLower(strings.TrimSpace(rawName[idx+1:]))
+			name = strings.TrimSpace(rawName[:idx])
+		} else if strings.HasSuffix(contentFile, "_en.html") || strings.HasSuffix(rawName, "_en") {
+			language = "en"
 		}
 
 		content := htmlTeaser

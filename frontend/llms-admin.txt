@@ -236,7 +236,7 @@ JSON-RPC 2.0 endpoint for MCP clients. Supports **MCP Streamable HTTP** (modern 
 
 ### Authentication & Permissions
 - **Public access (anonymous)**: `initialize`, `ping`, and read-only tools (`search_tiles`, `get_similar_tiles`, `get_tile`, `get_tile_versions`, `check_auth`) do not require a token.
-- **Admin operations**: Admin tools (`save_tile`, `update_tile_fields`, `delete_tile`, `clone_tile`, `manage_content`, `translate_tile`, `list_tasks`, `cancel_task`, `manage_media`, ...) require Bearer authentication (`Authorization: Bearer lbn_...`).
+- **Admin operations**: Admin tools (`save_tile`, `update_tile_fields`, `delete_tile`, `manage_content`, `translate_tile`, `list_tasks`, `cancel_task`, `manage_media`, ...) require Bearer authentication (`Authorization: Bearer lbn_...`).
 - **Discovery**: Unauthenticated requests receive RFC 9728 metadata pointers via `WWW-Authenticate: Bearer resource_metadata=".../.well-known/oauth-protected-resource/api/mcp"`.
 - **OAuth 2.0 Metadata Endpoints**:
   - `GET /.well-known/oauth-protected-resource/api/mcp` (RFC 9728 Protected Resource Metadata)

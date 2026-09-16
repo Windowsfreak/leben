@@ -347,30 +347,31 @@ func (s *TileService) GetTileExact(ctx context.Context, name, lang string, refCo
 	return tile, nil
 }
 
-func (s *TileService) GetTile(ctx context.Context, name, lang string, refCodes []string, showInvisible bool) (*models.Tile, error) {
+func (s *TileService) GetTile(ctx context.Context, name, prefLang string, refCodes []string, showInvisible bool) (*models.Tile, error) {
 	refCodesStr := strings.Join(refCodes, ",")
 	name = strings.ToLower(strings.TrimSpace(name))
+	prefLang = strings.ToLower(strings.TrimSpace(prefLang))
+	if prefLang == "" {
+		prefLang = "de"
+	}
 
 	sqlQuery := `
 		SELECT id, name, language, tags, title, html_teaser, summary, link, type, content_file, visible, secret, accent_color, background, embedding, sort_order, created_at, updated_at
 		FROM tiles 
-		WHERE name = $1 AND language = $2 
-		  AND ($3 = true OR (visible = true AND (secret = '' OR secret = ANY(string_to_array($4, ',')))))
+		WHERE name = $1 
+		  AND ($2 = true OR (visible = true AND (secret = '' OR secret = ANY(string_to_array($3, ',')))))
+		ORDER BY
+			CASE
+				WHEN language = $4 THEN 1
+				WHEN language = 'de' THEN 2
+				WHEN language = 'en' THEN 3
+				ELSE 4
+			END,
+			sort_order ASC, created_at DESC
 		LIMIT 1
 	`
-	row := s.database.QueryRowContext(ctx, sqlQuery, name, lang, showInvisible, refCodesStr)
+	row := s.database.QueryRowContext(ctx, sqlQuery, name, showInvisible, refCodesStr, prefLang)
 	tile, err := db.ScanTile(row)
-
-	// Fallback to alternative language if requested not found
-	if err == sql.ErrNoRows {
-		fallback := "de"
-		if lang == "de" {
-			fallback = "en"
-		}
-		row = s.database.QueryRowContext(ctx, sqlQuery, name, fallback, showInvisible, refCodesStr)
-		tile, err = db.ScanTile(row)
-	}
-
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("%w: '%s'", ErrTileNotFound, name)
@@ -444,14 +445,23 @@ func (s *TileService) SaveTile(ctx context.Context, tile *models.Tile) error {
 		return fmt.Errorf("name and language are required")
 	}
 
-	// Generate embedding if necessary
+	// Generate embedding if necessary (reuse existing vector if document text is unchanged)
 	docText := FormatTileDocumentText(tile.Name, tile.Language, tile.Tags, tile.Summary)
-	vec, err := s.ollama.GetEmbedding(ctx, docText, "document")
-	if err != nil {
-		// Zero vector fallback
-		vec = make([]float64, 768)
+	var vecStr string
+	if orig, err := s.GetTileExact(ctx, tile.Name, tile.Language, nil, true); err == nil && orig != nil {
+		oldDocText := FormatTileDocumentText(orig.Name, orig.Language, orig.Tags, orig.Summary)
+		if oldDocText == docText && len(orig.Embedding) > 0 {
+			vecStr = db.VectorToString(orig.Embedding)
+		}
 	}
-	vecStr := db.VectorToString(vec)
+	if vecStr == "" {
+		vec, err := s.ollama.GetEmbedding(ctx, docText, "document")
+		if err != nil {
+			// Zero vector fallback
+			vec = make([]float64, 768)
+		}
+		vecStr = db.VectorToString(vec)
+	}
 	pgTags := db.TagsToPostgres(tile.Tags)
 
 	if tile.SortOrder == 0 {
@@ -498,6 +508,237 @@ func (s *TileService) SaveTile(ctx context.Context, tile *models.Tile) error {
 		tile.Link, tile.Type, tile.ContentFile, tile.Visible, tile.Secret, tile.AccentColor,
 		tile.Background, vecStr, tile.SortOrder,
 	).Scan(&tile.ID)
+}
+
+func (s *TileService) PatchTiles(ctx context.Context, patches []models.TilePatchDTO) (*models.BatchPatchResult, error) {
+	result := &models.BatchPatchResult{
+		Total:   len(patches),
+		Results: make([]models.TilePatchItemResult, 0, len(patches)),
+	}
+
+	tx, err := s.database.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	for _, patch := range patches {
+		name, lang, err := patch.Normalize()
+		if err != nil {
+			result.Failed++
+			errMsg := fmt.Sprintf("invalid patch spec: %v", err)
+			result.Errors = append(result.Errors, errMsg)
+			result.Results = append(result.Results, models.TilePatchItemResult{
+				Name:   patch.Name,
+				Lang:   patch.Lang,
+				Status: "error",
+				Error:  errMsg,
+			})
+			continue
+		}
+
+		selectSQL := `
+			SELECT id, name, language, tags, title, html_teaser, summary, link, type, content_file,
+			       visible, secret, accent_color, background, embedding, sort_order, created_at, updated_at
+			FROM tiles
+			WHERE name = $1 AND language = $2
+			FOR UPDATE
+		`
+		row := tx.QueryRowContext(ctx, selectSQL, name, lang)
+		existing, err := db.ScanTile(row)
+		if err != nil {
+			result.Failed++
+			errMsg := fmt.Sprintf("tile '%s:%s' not found", name, lang)
+			result.Errors = append(result.Errors, errMsg)
+			result.Results = append(result.Results, models.TilePatchItemResult{
+				Name:   name,
+				Lang:   lang,
+				Status: "error",
+				Error:  errMsg,
+			})
+			continue
+		}
+
+		targetName := name
+		if patch.NewName != nil {
+			trimmedNew := strings.ToLower(strings.TrimSpace(*patch.NewName))
+			if trimmedNew != "" && trimmedNew != name {
+				var exists bool
+				checkCollisionSQL := `SELECT EXISTS(SELECT 1 FROM tiles WHERE name = $1 AND language = $2 AND id != $3)`
+				if err := tx.QueryRowContext(ctx, checkCollisionSQL, trimmedNew, lang, existing.ID).Scan(&exists); err != nil {
+					result.Failed++
+					errMsg := fmt.Sprintf("error checking collision for '%s:%s': %v", trimmedNew, lang, err)
+					result.Errors = append(result.Errors, errMsg)
+					result.Results = append(result.Results, models.TilePatchItemResult{
+						Name:   name,
+						Lang:   lang,
+						Status: "error",
+						Error:  errMsg,
+					})
+					continue
+				}
+				if exists {
+					result.Failed++
+					errMsg := fmt.Sprintf("cannot rename '%s:%s': slug '%s' already exists for language '%s'", name, lang, trimmedNew, lang)
+					result.Errors = append(result.Errors, errMsg)
+					result.Results = append(result.Results, models.TilePatchItemResult{
+						Name:    name,
+						Lang:    lang,
+						NewName: trimmedNew,
+						Status:  "error",
+						Error:   errMsg,
+					})
+					continue
+				}
+				targetName = trimmedNew
+			}
+		}
+
+		oldDocText := FormatTileDocumentText(existing.Name, existing.Language, existing.Tags, existing.Summary)
+
+		existing.Name = targetName
+		if patch.Title != nil {
+			existing.Title = *patch.Title
+		}
+		if patch.Summary != nil {
+			existing.Summary = *patch.Summary
+		}
+		if patch.HTMLTeaser != nil {
+			existing.HTMLTeaser = *patch.HTMLTeaser
+		}
+		if patch.ContentFile != nil {
+			existing.ContentFile = *patch.ContentFile
+		}
+		if patch.Tags != nil {
+			existing.Tags = *patch.Tags
+		}
+		if patch.Type != nil {
+			t := strings.TrimSpace(*patch.Type)
+			if idx := strings.Index(t, "("); idx != -1 {
+				t = strings.TrimSpace(t[:idx])
+			}
+			if t != "link" {
+				t = "doc"
+			}
+			existing.Type = t
+		}
+		if patch.Link != nil {
+			existing.Link = *patch.Link
+		}
+		if patch.Secret != nil {
+			existing.Secret = *patch.Secret
+		}
+		if patch.AccentColor != nil {
+			existing.AccentColor = *patch.AccentColor
+		}
+		if patch.Background != nil {
+			existing.Background = *patch.Background
+		}
+		if patch.Visible != nil {
+			existing.Visible = *patch.Visible
+		}
+		if patch.SortOrder != nil {
+			existing.SortOrder = *patch.SortOrder
+		}
+
+		newDocText := FormatTileDocumentText(existing.Name, existing.Language, existing.Tags, existing.Summary)
+
+		var vecStr string
+		if oldDocText == newDocText && len(existing.Embedding) > 0 {
+			vecStr = db.VectorToString(existing.Embedding)
+		} else {
+			vec, err := s.ollama.GetEmbedding(ctx, newDocText, "document")
+			if err != nil {
+				vec = make([]float64, 768)
+			}
+			vecStr = db.VectorToString(vec)
+		}
+
+		pgTags := db.TagsToPostgres(existing.Tags)
+
+		updateSQL := `
+			UPDATE tiles SET
+				name = $1, tags = $2, title = $3, html_teaser = $4, summary = $5,
+				link = $6, type = $7, content_file = $8, visible = $9, secret = $10,
+				accent_color = $11, background = $12, embedding = $13::vector,
+				sort_order = $14, updated_at = CURRENT_TIMESTAMP
+			WHERE id = $15
+		`
+		_, err = tx.ExecContext(ctx, updateSQL,
+			existing.Name, pgTags, existing.Title, existing.HTMLTeaser, existing.Summary,
+			existing.Link, existing.Type, existing.ContentFile, existing.Visible, existing.Secret,
+			existing.AccentColor, existing.Background, vecStr, existing.SortOrder, existing.ID,
+		)
+		if err != nil {
+			result.Failed++
+			errMsg := fmt.Sprintf("failed to update tile '%s:%s': %v", name, lang, err)
+			result.Errors = append(result.Errors, errMsg)
+			result.Results = append(result.Results, models.TilePatchItemResult{
+				Name:   name,
+				Lang:   lang,
+				Status: "error",
+				Error:  errMsg,
+			})
+			continue
+		}
+
+		result.Succeeded++
+		itemRes := models.TilePatchItemResult{
+			Name:   name,
+			Lang:   lang,
+			Status: "ok",
+		}
+		if targetName != name {
+			itemRes.NewName = targetName
+		}
+		result.Results = append(result.Results, itemRes)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	if result.Failed == 0 {
+		result.Status = "success"
+	} else if result.Succeeded > 0 {
+		result.Status = "partial_success"
+	} else {
+		result.Status = "error"
+	}
+
+	return result, nil
+}
+
+func (s *TileService) GetTilesBySpec(ctx context.Context, specs []models.TileSpec, defaultLang string, exact bool, refCodes []string, showInvisible bool) ([]*models.Tile, error) {
+	if len(specs) == 0 {
+		return []*models.Tile{}, nil
+	}
+
+	results := make([]*models.Tile, 0, len(specs))
+	for _, spec := range specs {
+		name := strings.ToLower(strings.TrimSpace(spec.Name))
+		lang := strings.ToLower(strings.TrimSpace(spec.Lang))
+		hasExplicitLang := lang != ""
+		if lang == "" {
+			lang = defaultLang
+		}
+		if lang == "" {
+			lang = "de"
+		}
+
+		var tile *models.Tile
+		var err error
+		if exact && hasExplicitLang {
+			tile, err = s.GetTileExact(ctx, name, lang, refCodes, showInvisible)
+		} else {
+			tile, err = s.GetTile(ctx, name, lang, refCodes, showInvisible)
+		}
+		if err == nil && tile != nil {
+			results = append(results, tile)
+		}
+	}
+
+	return results, nil
 }
 
 func (s *TileService) DeleteTile(ctx context.Context, id int) error {

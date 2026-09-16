@@ -1,6 +1,8 @@
 package models
 
 import (
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -138,3 +140,74 @@ type MCPResponse struct {
 	Result  any    `json:"result,omitempty"`
 	Error   any    `json:"error,omitempty"`
 }
+
+type TilePatchDTO struct {
+	Name        string  `json:"name"`
+	Lang        string  `json:"lang,omitempty"`
+	Language    string  `json:"language,omitempty"`
+	Tile        string  `json:"tile,omitempty"` // compound alias e.g. "finance:de"
+	NewName     *string `json:"new_name,omitempty"`
+	Title       *string `json:"title,omitempty"`
+	HTMLTeaser  *string `json:"html_teaser,omitempty"`
+	Summary     *string `json:"summary,omitempty"`
+	ContentFile *string `json:"content_file,omitempty"`
+	Tags        *string `json:"tags,omitempty"`
+	Type        *string `json:"type,omitempty"`
+	Link        *string `json:"link,omitempty"`
+	Secret      *string `json:"secret,omitempty"`
+	AccentColor *string `json:"accent_color,omitempty"`
+	Background  *string `json:"background,omitempty"`
+	Visible     *bool   `json:"visible,omitempty"`
+	SortOrder   *int    `json:"sort_order,omitempty"`
+}
+
+func (p *TilePatchDTO) Normalize() (string, string, error) {
+	name := strings.TrimSpace(p.Name)
+	if name == "" {
+		name = strings.TrimSpace(p.Tile)
+	}
+	lang := strings.ToLower(strings.TrimSpace(p.Lang))
+	if lang == "" {
+		lang = strings.ToLower(strings.TrimSpace(p.Language))
+	}
+
+	if idx := strings.Index(name, ":"); idx != -1 {
+		embeddedName := strings.TrimSpace(name[:idx])
+		embeddedLang := strings.ToLower(strings.TrimSpace(name[idx+1:]))
+		if embeddedLang != "" {
+			lang = embeddedLang
+			name = embeddedName
+		}
+	}
+
+	if name == "" {
+		return "", "", fmt.Errorf("tile name is required")
+	}
+	if lang == "" {
+		return "", "", fmt.Errorf("tile language is required (or use 'name:lang' syntax)")
+	}
+	return strings.ToLower(name), lang, nil
+}
+
+type TilePatchItemResult struct {
+	Name    string `json:"name"`
+	Lang    string `json:"lang"`
+	Status  string `json:"status"` // "ok" or "error"
+	NewName string `json:"new_name,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+type BatchPatchResult struct {
+	Status    string                `json:"status"` // "success" or "partial_success" or "error"
+	Total     int                   `json:"total"`
+	Succeeded int                   `json:"succeeded"`
+	Failed    int                   `json:"failed"`
+	Errors    []string              `json:"errors,omitempty"`
+	Results   []TilePatchItemResult `json:"results"`
+}
+
+type TileSpec struct {
+	Name string `json:"name"`
+	Lang string `json:"lang"`
+}
+
