@@ -24,13 +24,10 @@ type DatabaseConfig struct {
 }
 
 type EmbeddingConfig struct {
-	URL           string `yaml:"url"`
-	Token         string `yaml:"token"`
-	Model         string `yaml:"model"`
-	QueryPrefix   string `yaml:"query_prefix"`
-	DocPrefix     string `yaml:"doc_prefix"`
-	FallbackURL   string `yaml:"fallback_url"`
-	FallbackModel string `yaml:"fallback_model"`
+	URL         string `yaml:"url"`
+	Model       string `yaml:"model"`
+	QueryPrefix string `yaml:"query_prefix"`
+	DocPrefix   string `yaml:"doc_prefix"`
 }
 
 type LLMConfig struct {
