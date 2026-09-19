@@ -14,10 +14,13 @@ database:
   sslmode: "disable"
 
 embedding:
-  url: "http://localhost:11434"
+  url: "https://nomic-embed-text-v2-moe.service" # Primary: GPU Cloud
+  token: "your_auth_token_here"
   model: "nomic-embed-text-v2-moe:latest"
   query_prefix: "search_query: "
   doc_prefix: "search_document: "
+  fallback_url: "http://localhost:11434" # Fallback: Local Ollama CPU
+  fallback_model: "nomic-embed-text-v2-moe:latest"
 
 llm:
   url: "http://localhost:3001"
