@@ -63,7 +63,7 @@ func (s *TileService) SearchTiles(ctx context.Context, prefLang, queryStr string
 				SELECT id, name, language, tags, title, html_teaser, 
 					   summary, link, type, content_file, 
 					   visible, secret, accent_color, background, embedding, sort_order, created_at, updated_at,
-					   (embedding <=> $1::vector) as distance
+					   coalesce(embedding <=> $1::vector, 999.0) as distance
 				FROM tiles
 				WHERE ($2 = true OR (visible = true AND (secret = '' OR secret = ANY(string_to_array($3, ',')))))
 				ORDER BY distance ASC, sort_order ASC, id ASC 
@@ -74,14 +74,14 @@ func (s *TileService) SearchTiles(ctx context.Context, prefLang, queryStr string
 			sqlQuery = `
 				WITH resolved_tiles AS (
 					SELECT *,
-						   (embedding <=> $1::vector) as distance,
+						   coalesce(embedding <=> $1::vector, 999.0) as distance,
 						   ROW_NUMBER() OVER (
 							   PARTITION BY name 
 							   ORDER BY 
 								   CASE WHEN language = $2 THEN 1 
 										ELSE 2 
 								   END,
-								   (embedding <=> $1::vector) ASC
+								   coalesce(embedding <=> $1::vector, 999.0) ASC
 						   ) as rn
 					FROM tiles
 					WHERE ($3 = true OR (visible = true AND (secret = '' OR secret = ANY(string_to_array($4, ',')))))
@@ -106,6 +106,7 @@ func (s *TileService) SearchTiles(ctx context.Context, prefLang, queryStr string
 			var tile models.Tile
 			var tagsStr, vecStr sql.NullString
 			var link, contentFile, background sql.NullString
+			var distanceVal sql.NullFloat64
 
 			err := rows.Scan(
 				&tile.ID,
@@ -126,11 +127,12 @@ func (s *TileService) SearchTiles(ctx context.Context, prefLang, queryStr string
 				&tile.SortOrder,
 				&tile.CreatedAt,
 				&tile.UpdatedAt,
-				&tile.Distance,
+				&distanceVal,
 			)
 			if err != nil {
 				return nil, err
 			}
+			tile.Distance = distanceVal.Float64
 			if tile.Distance > 0 && tile.Distance <= 2.0 {
 				sim := math.Round((1.0-tile.Distance)*100) / 100
 				if sim < 0 {
@@ -238,14 +240,14 @@ func (s *TileService) GetSimilarTiles(ctx context.Context, name, prefLang string
 		),
 		resolved_tiles AS (
 			SELECT *,
-				   (embedding <=> (SELECT embedding FROM source_tile)) as distance,
+				   coalesce(embedding <=> (SELECT embedding FROM source_tile), 999.0) as distance,
 				   ROW_NUMBER() OVER (
 					   PARTITION BY name 
 					   ORDER BY 
 						   CASE WHEN language = $2 THEN 1 
 								ELSE 2 
 						   END,
-						   (embedding <=> (SELECT embedding FROM source_tile)) ASC
+						   coalesce(embedding <=> (SELECT embedding FROM source_tile), 999.0) ASC
 					   ) as rn
 			FROM tiles
 			WHERE ($3 = true OR (visible = true AND (secret = '' OR secret = ANY(string_to_array($4, ','))))) AND name != $1
@@ -269,6 +271,7 @@ func (s *TileService) GetSimilarTiles(ctx context.Context, name, prefLang string
 		var tile models.Tile
 		var tagsStr, vecStr sql.NullString
 		var link, contentFile, background sql.NullString
+		var distanceVal sql.NullFloat64
 
 		err := rows.Scan(
 			&tile.ID,
@@ -289,11 +292,12 @@ func (s *TileService) GetSimilarTiles(ctx context.Context, name, prefLang string
 			&tile.SortOrder,
 			&tile.CreatedAt,
 			&tile.UpdatedAt,
-			&tile.Distance,
+			&distanceVal,
 		)
 		if err != nil {
 			return nil, err
 		}
+		tile.Distance = distanceVal.Float64
 		if tile.Distance > 0 && tile.Distance <= 2.0 {
 			sim := math.Round((1.0-tile.Distance)*100) / 100
 			if sim < 0 {
