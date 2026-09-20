@@ -58,10 +58,12 @@ def load_artifacts():
 
     print(f"Loading ONNX runtime session from {local_onnx}...")
     sess_options = ort.SessionOptions()
+    sess_options.enable_cpu_mem_arena = False
+    sess_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
     sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-    threads = int(os.environ.get("ORT_NUM_THREADS", "0"))
-    if threads > 0:
-        sess_options.intra_op_num_threads = threads
+    threads = int(os.environ.get("ORT_NUM_THREADS", "2"))
+    sess_options.intra_op_num_threads = threads
+    sess_options.inter_op_num_threads = 1
 
     session = ort.InferenceSession(local_onnx, sess_options)
     print(f"ONNX session loaded successfully (dim={DIMENSION}).")

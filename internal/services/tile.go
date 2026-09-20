@@ -947,7 +947,7 @@ func (s *TileService) RefreshVectors(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 
-	batchSize := 32
+	batchSize := 8
 	count := 0
 
 	for i := 0; i < len(allTiles); i += batchSize {
