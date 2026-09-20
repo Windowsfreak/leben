@@ -14,10 +14,10 @@ database:
   sslmode: "disable"
 
 embedding:
-  url: "http://localhost:11434"
-  model: "nomic-embed-text-v2-moe:latest"
-  query_prefix: "search_query: "
-  doc_prefix: "search_document: "
+  url: "http://127.0.0.1:8089"
+  model: "ibm-granite/granite-embedding-97m-multilingual-r2"
+  query_prefix: ""
+  doc_prefix: ""
 
 llm:
   url: "http://localhost:3001"

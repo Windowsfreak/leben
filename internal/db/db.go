@@ -68,7 +68,7 @@ func (db *DB) Migrate() error {
 			secret VARCHAR(255) NOT NULL DEFAULT '',
 			accent_color VARCHAR(50) NOT NULL DEFAULT '#fbbf24',
 			background TEXT,
-			embedding vector(768),
+			embedding vector(384),
 			sort_order INT NOT NULL DEFAULT 100,
 			created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
 			updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -122,6 +122,20 @@ func (db *DB) Migrate() error {
 		log.Printf("Warning: device_grants index creation issue (non-fatal): %v", err)
 	}
 
+	// Check and migrate vector dimension to 384 if upgrading from 768 or another dimension
+	var currentDim int
+	err := db.QueryRow("SELECT atttypmod FROM pg_attribute WHERE attrelid = 'tiles'::regclass AND attname = 'embedding';").Scan(&currentDim)
+	if err == nil && currentDim > 0 && currentDim != 384 {
+		log.Printf("Migrating tiles embedding column from dimension %d to 384...", currentDim)
+		_, _ = db.Exec("DROP INDEX IF EXISTS tiles_embedding_hnsw_idx;")
+		_, _ = db.Exec("UPDATE tiles SET embedding = NULL;")
+		if _, err := db.Exec("ALTER TABLE tiles ALTER COLUMN embedding TYPE vector(384);"); err != nil {
+			log.Printf("Warning: failed to alter embedding column to vector(384): %v", err)
+		} else {
+			log.Println("Successfully migrated tiles embedding column to vector(384). Tiles need vector refresh.")
+		}
+	}
+
 	log.Println("Ensuring HNSW vector index...")
 	if _, err := db.Exec("CREATE INDEX IF NOT EXISTS tiles_embedding_hnsw_idx ON tiles USING hnsw (embedding vector_cosine_ops);"); err != nil {
 		log.Printf("Warning: HNSW index creation issue (non-fatal): %v", err)
@@ -143,7 +157,7 @@ func (db *DB) Migrate() error {
 
 func VectorToString(v []float64) string {
 	if len(v) == 0 {
-		return "[0" + strings.Repeat(",0", 767) + "]"
+		return "[0" + strings.Repeat(",0", 383) + "]"
 	}
 	strs := make([]string, len(v))
 	for i, val := range v {

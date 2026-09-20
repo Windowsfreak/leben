@@ -14,6 +14,9 @@ config.yml
 .DS_Store
 Thumbs.db
 *.log
+embed-sidecar/models/
+embed-sidecar/__pycache__/
+embed-sidecar/.venv/
 
 # Frontend rules & legacy files
 frontend/.htaccess

@@ -19,6 +19,8 @@ import (
 
 var ErrTileNotFound = errors.New("tile not found")
 
+const DefaultEmbeddingDim = 384
+
 type TileService struct {
 	cfg      *config.Config
 	database *db.DB
@@ -50,7 +52,7 @@ func (s *TileService) SearchTiles(ctx context.Context, prefLang, queryStr string
 		queryVec, err := s.ollama.GetEmbedding(ctx, searchText, "query")
 		if err != nil {
 			// Fallback zero vector if embedding fails
-			queryVec = make([]float64, 768)
+			queryVec = make([]float64, DefaultEmbeddingDim)
 		}
 		vecStr := db.VectorToString(queryVec)
 
@@ -460,7 +462,7 @@ func (s *TileService) SaveTile(ctx context.Context, tile *models.Tile) error {
 		vec, err := s.ollama.GetEmbedding(ctx, docText, "document")
 		if err != nil {
 			// Zero vector fallback
-			vec = make([]float64, 768)
+			vec = make([]float64, DefaultEmbeddingDim)
 		}
 		vecStr = db.VectorToString(vec)
 	}
@@ -651,7 +653,7 @@ func (s *TileService) PatchTiles(ctx context.Context, patches []models.TilePatch
 		} else {
 			vec, err := s.ollama.GetEmbedding(ctx, newDocText, "document")
 			if err != nil {
-				vec = make([]float64, 768)
+				vec = make([]float64, DefaultEmbeddingDim)
 			}
 			vecStr = db.VectorToString(vec)
 		}
@@ -937,10 +939,46 @@ func (s *TileService) RefreshVectors(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	if len(allTiles) == 0 {
+		return 0, nil
+	}
+
+	batchSize := 32
 	count := 0
-	for _, t := range allTiles {
-		if err := s.SaveTile(ctx, t); err == nil {
-			count++
+
+	for i := 0; i < len(allTiles); i += batchSize {
+		end := i + batchSize
+		if end > len(allTiles) {
+			end = len(allTiles)
+		}
+		chunk := allTiles[i:end]
+		docTexts := make([]string, len(chunk))
+		for j, t := range chunk {
+			docTexts[j] = FormatTileDocumentText(t.Name, t.Language, t.Tags, t.Summary)
+		}
+
+		vecs, err := s.ollama.GetEmbeddings(ctx, docTexts)
+		if err != nil {
+			// Fallback: try individual embeddings
+			for _, t := range chunk {
+				docText := FormatTileDocumentText(t.Name, t.Language, t.Tags, t.Summary)
+				vec, err := s.ollama.GetEmbedding(ctx, docText, "document")
+				if err != nil {
+					continue
+				}
+				vecStr := db.VectorToString(vec)
+				if _, err := s.database.ExecContext(ctx, "UPDATE tiles SET embedding = $1::vector, updated_at = CURRENT_TIMESTAMP WHERE name = $2 AND language = $3", vecStr, t.Name, t.Language); err == nil {
+					count++
+				}
+			}
+			continue
+		}
+
+		for j, t := range chunk {
+			vecStr := db.VectorToString(vecs[j])
+			if _, err := s.database.ExecContext(ctx, "UPDATE tiles SET embedding = $1::vector, updated_at = CURRENT_TIMESTAMP WHERE name = $2 AND language = $3", vecStr, t.Name, t.Language); err == nil {
+				count++
+			}
 		}
 	}
 	return count, nil
