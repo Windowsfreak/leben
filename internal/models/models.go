@@ -13,6 +13,7 @@ type Tile struct {
 	Tags        string    `json:"tags"`
 	Title       string    `json:"title"`
 	HTMLTeaser  string    `json:"html_teaser"`
+	Teaser      string    `json:"teaser,omitempty"`
 	Summary     string    `json:"summary"`
 	Link        string    `json:"link,omitempty"`
 	Type        string    `json:"type"`
@@ -36,9 +37,9 @@ type TileDTO struct {
 	Name        string   `json:"name,omitempty" toon:"name,omitempty"`
 	Lang        string   `json:"lang,omitempty" toon:"lang,omitempty"`
 	Title       string   `json:"title,omitempty" toon:"title,omitempty"`
-	HTMLTeaser  string   `json:"html_teaser,omitempty" toon:"html_teaser,omitempty"`
+	Teaser      string   `json:"teaser,omitempty" toon:"teaser,omitempty"`
 	Summary     string   `json:"summary,omitempty" toon:"summary,omitempty"`
-	Content     string   `json:"content,omitempty" toon:"content,omitempty"`
+	Body        string   `json:"body,omitempty" toon:"body,omitempty"`
 	ContentFile string   `json:"content_file,omitempty" toon:"content_file,omitempty"`
 	Type        string   `json:"type,omitempty" toon:"type,omitempty"`
 	Tags        string   `json:"tags,omitempty" toon:"tags,omitempty"`

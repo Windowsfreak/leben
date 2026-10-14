@@ -68,7 +68,7 @@ func (s *Server) GetTools(isAdmin bool) []models.MCPTool {
 					"lang":    map[string]any{"type": "string", "enum": targetLangs, "description": "Language code or 'all' (default 'de')"},
 					"detail":  map[string]any{"type": "string", "enum": []string{"min", "snippet", "summary", "full"}, "description": "Verbosity level: 'min' (headings only), 'snippet' (default, cropped teaser/summary), 'summary' (full summary), 'full' (full summary + HTML body)"},
 					"crop":    map[string]any{"type": "integer", "description": "Truncation length for summary/body (default 120; 0 for uncropped)"},
-					"format":  map[string]any{"type": "string", "enum": []string{"json", "toon"}, "description": "Output format ('json' or 'toon', default 'json')"},
+					"format":  map[string]any{"type": "string", "enum": []string{"json", "toon", "toon,md", "json,md", "md", "html"}, "description": "Response and content format: 'json', 'toon', 'toon,md', 'json,md', 'md', 'html' (default 'json'). 'toon,md' recommended for LLMs."},
 					"fields":  map[string]any{"type": "string", "description": "Comma-separated sparse field projection (e.g. 'name,title,summary')"},
 					"limit":   map[string]any{"type": "integer", "description": "Maximum tiles to return (default 20, 0 = all)"},
 					"offset":  map[string]any{"type": "integer", "description": "Pagination offset (default 0)"},
@@ -97,6 +97,7 @@ func (s *Server) GetTools(isAdmin bool) []models.MCPTool {
 				"properties": map[string]any{
 					"name":            map[string]any{"type": "string", "description": "Card identifier in compound 'slug:lang' format (e.g. 'finance:de')"},
 					"include_content": map[string]any{"type": "boolean", "description": "Whether to include full HTML content from file"},
+					"format":          map[string]any{"type": "string", "enum": []string{"html", "md"}, "description": "Content format ('html' or 'md', default 'html')"},
 				},
 				"required": []string{"name"},
 			},
@@ -204,6 +205,7 @@ func (s *Server) GetTools(isAdmin bool) []models.MCPTool {
 					"action":         map[string]any{"type": "string", "enum": []string{"list", "get", "save", "delete", "rename"}, "description": "Operation to perform"},
 					"file":           map[string]any{"type": "string", "description": "Filename in /content/, e.g. 'finance_de.html'"},
 					"content":        map[string]any{"type": "string", "description": "Full HTML content for save"},
+					"format":         map[string]any{"type": "string", "enum": []string{"html", "md"}, "description": "Content format for action=get ('html' or 'md', default 'html')"},
 					"new_name":       map[string]any{"type": "string", "description": "New filename for rename"},
 					"expected_mtime": map[string]any{"type": "integer", "description": "mtime from a previous get call for conflict detection (optional)"},
 				},
@@ -621,13 +623,30 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]a
 			}
 		}
 
+		envelope := "json"
+		contentFmt := "html"
+		if format != "" {
+			for _, part := range strings.Split(format, ",") {
+				switch strings.TrimSpace(strings.ToLower(part)) {
+				case "toon":
+					envelope = "toon"
+				case "json":
+					envelope = "json"
+				case "md", "markdown":
+					contentFmt = "md"
+				case "html":
+					contentFmt = "html"
+				}
+			}
+		}
+
 		contentsDir := filepath.Join(s.cfg.Server.WebDir, "content")
 		dtos := make([]models.TileDTO, 0, len(tiles))
 		for i, t := range tiles {
-			dtos = append(dtos, services.ToRichTileDTO(t, offset+i+1, detail, crop, contentsDir, q, similar, isAdmin, fieldSet))
+			dtos = append(dtos, services.ToRichTileDTO(t, offset+i+1, detail, crop, contentsDir, q, similar, isAdmin, fieldSet, contentFmt))
 		}
 
-		if format == "toon" {
+		if envelope == "toon" {
 			return toon.FormatTOON(q, lang, detail, dtos)
 		}
 		return dtos, nil
@@ -647,6 +666,8 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]a
 
 	case "get_tile":
 		tName := getString(args, "name")
+		format := strings.ToLower(strings.TrimSpace(getString(args, "format")))
+		isMD := format == "md" || format == "markdown" || strings.Contains(format, ",md")
 		lang := "de"
 		if idx := strings.Index(tName, ":"); idx != -1 {
 			lang = strings.ToLower(strings.TrimSpace(tName[idx+1:]))
@@ -662,13 +683,22 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]a
 			}
 			return nil, err
 		}
+		tile.Teaser = tile.HTMLTeaser
+		if isMD {
+			tile.Teaser = services.HTMLToMarkdown(tile.HTMLTeaser)
+		}
 		if getBool(args, "include_content", false) && tile.ContentFile != "" {
 			fPath := filepath.Join(s.cfg.Server.WebDir, "content", filepath.Clean(tile.ContentFile))
 			if b, readErr := os.ReadFile(fPath); readErr == nil {
+				bodyContent := string(b)
+				if isMD {
+					bodyContent = services.HTMLToMarkdown(bodyContent)
+				}
 				return map[string]any{
 					"status":  "success",
 					"tile":    tile,
-					"content": string(b),
+					"body":    bodyContent,
+					"content": bodyContent,
 				}, nil
 			}
 		}
@@ -816,10 +846,15 @@ func (s *Server) ExecuteTool(ctx context.Context, name string, args map[string]a
 			if info != nil {
 				mtime = info.ModTime().Unix()
 			}
+			contentStr := string(data)
+			format := strings.ToLower(strings.TrimSpace(getString(args, "format")))
+			if format == "md" || format == "markdown" {
+				contentStr = services.HTMLToMarkdown(contentStr)
+			}
 			return map[string]any{
 				"status":  "success",
 				"file":    file,
-				"content": string(data),
+				"content": contentStr,
 				"mtime":   mtime,
 			}, nil
 

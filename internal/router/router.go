@@ -188,13 +188,30 @@ func (r *Router) handleGetTiles(w http.ResponseWriter, req *http.Request, _ http
 		lang = "de"
 	}
 
-	format := strings.ToLower(strings.TrimSpace(qParams.Get("format")))
+	envelope := "json"
+	contentFmt := "html"
+
 	acceptHeader := req.Header.Get("Accept")
-	if format == "" {
-		if strings.Contains(acceptHeader, "text/x-toon") || strings.Contains(acceptHeader, "toon") {
-			format = "toon"
-		} else {
-			format = "json"
+	if strings.Contains(acceptHeader, "text/x-toon") || strings.Contains(acceptHeader, "toon") {
+		envelope = "toon"
+	}
+	if strings.Contains(acceptHeader, "text/markdown") || strings.Contains(acceptHeader, "markdown") {
+		contentFmt = "md"
+	}
+
+	rawFormat := strings.ToLower(strings.TrimSpace(qParams.Get("format")))
+	if rawFormat != "" {
+		for _, part := range strings.Split(rawFormat, ",") {
+			switch strings.TrimSpace(part) {
+			case "toon":
+				envelope = "toon"
+			case "json":
+				envelope = "json"
+			case "md", "markdown":
+				contentFmt = "md"
+			case "html":
+				contentFmt = "html"
+			}
 		}
 	}
 
@@ -286,10 +303,10 @@ func (r *Router) handleGetTiles(w http.ResponseWriter, req *http.Request, _ http
 	contentsDir := filepath.Join(r.cfg.Server.WebDir, "content")
 	dtos := make([]models.TileDTO, len(tiles))
 	for idx, t := range tiles {
-		dtos[idx] = toRichTileDTO(t, offset+idx+1, detail, crop, contentsDir, qStr, similarName, showInvisible, fieldSet)
+		dtos[idx] = toRichTileDTO(t, offset+idx+1, detail, crop, contentsDir, qStr, similarName, showInvisible, fieldSet, contentFmt)
 	}
 
-	if format == "toon" {
+	if envelope == "toon" {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("X-LLM-Format", "TOON")
 		output, err := toon.FormatTOON(qStr, lang, detail, dtos)
@@ -317,7 +334,7 @@ func toFrontendTileDTO(t *models.Tile, isAdmin bool) models.TileDTO {
 		Name:        t.Name,
 		Lang:        t.Language,
 		Title:       t.Title,
-		HTMLTeaser:  t.HTMLTeaser,
+		Teaser:      t.HTMLTeaser,
 		Link:        t.Link,
 		Type:        t.Type,
 		ContentFile: t.ContentFile,
@@ -335,8 +352,8 @@ func toFrontendTileDTO(t *models.Tile, isAdmin bool) models.TileDTO {
 	return dto
 }
 
-func toRichTileDTO(t *models.Tile, idx int, detail string, crop int, contentsDir string, qStr, similarName string, isAdmin bool, fieldSet map[string]bool) models.TileDTO {
-	return services.ToRichTileDTO(t, idx, detail, crop, contentsDir, qStr, similarName, isAdmin, fieldSet)
+func toRichTileDTO(t *models.Tile, idx int, detail string, crop int, contentsDir string, qStr, similarName string, isAdmin bool, fieldSet map[string]bool, contentFmt string) models.TileDTO {
+	return services.ToRichTileDTO(t, idx, detail, crop, contentsDir, qStr, similarName, isAdmin, fieldSet, contentFmt)
 }
 
 func (r *Router) handleGetTileByName(w http.ResponseWriter, req *http.Request, ps httprouter.Params) {
@@ -372,6 +389,12 @@ func (r *Router) handleGetTileByName(w http.ResponseWriter, req *http.Request, p
 		}
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
+	}
+
+	tile.Teaser = tile.HTMLTeaser
+	reqFmt := strings.ToLower(strings.TrimSpace(req.URL.Query().Get("format")))
+	if reqFmt == "md" || reqFmt == "markdown" || strings.Contains(reqFmt, ",md") {
+		tile.Teaser = services.HTMLToMarkdown(tile.HTMLTeaser)
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -717,9 +740,15 @@ func (r *Router) handleAdminGetContentFile(w http.ResponseWriter, req *http.Requ
 		return
 	}
 
+	contentStr := string(bytes)
+	format := strings.ToLower(strings.TrimSpace(req.URL.Query().Get("format")))
+	if format == "md" || format == "markdown" {
+		contentStr = services.HTMLToMarkdown(contentStr)
+	}
+
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":  "success",
-		"content": string(bytes),
+		"content": contentStr,
 		"mtime":   info.ModTime().Unix(),
 	})
 }

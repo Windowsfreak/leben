@@ -22,19 +22,19 @@ Semantic vector search across all visible cards. No authentication required.
   - `full`: metadata + summary + full article body / HTML teaser / link (plus admin fields if authenticated)
 - `crop`: Character limit for summary/body (default `120` for `detail=snippet`, `0` = uncropped).
 - `fields`: Comma-separated sparse field projection (e.g. `fields=name,title,summary`).
-- `format`: `json` (default) or `toon`. Header `Accept: text/x-toon` also selects TOON.
+- `format`: Response and content format. Envelope: `json` (default) or `toon`. Content: `html` (default) or `md` (Markdown). Can be combined comma-separated: `format=toon,md` (recommended for LLMs to minimize token consumption), `format=json,md`, `format=toon`, or `format=json`. Header `Accept: text/x-toon` or `Accept: text/markdown` also selects format.
 
 ### Optional Headers
 - `X-Reference: <code1>,<code2>`: Unlocks cards protected by private reference codes.
 
 ### Response Formats
 - **JSON**: `{"status":"success","query":"...","lang":"de","format":"json","count":N,"tiles":[TileDTO...]}`
-  - TileDTO schema: `index`, `name`, `lang`, `title`, `tags`, `type` ("doc"|"link" or "doc(size)"), `summary`, `content`, `content_file`, `link`, `date`, `score` (0..1 relevance float), `accent_color`, `background`, plus `visible`, `secret`, `sort_order` for admin callers.
+  - TileDTO schema: `index`, `name`, `lang`, `title`, `tags`, `type` ("doc"|"link" or "doc(size)"), `teaser` (HTML or Markdown), `summary` (dense embedding text), `body` (article text in HTML or Markdown when `detail=full`), `content_file`, `link`, `date`, `score` (0..1 relevance float), `accent_color`, `background`, plus `visible`, `secret`, `sort_order` for admin callers.
   - *(For non-admin frontend requests with header `X-Purpose: frontend`, internal keys like `summary`, `tags`, `score`, and `index` are omitted).*
-- **TOON** (`?format=toon` or `Accept: text/x-toon`): Tabular plain-text output (commented header line + one card block per card). Optimized for low token usage in LLM prompts.
+- **TOON** (`?format=toon` or `Accept: text/x-toon`): Tabular plain-text output (commented header line + one card block per card). Use `?format=toon,md` for token-efficient Markdown article bodies.
 
 ## Other Public Endpoints
-- `GET /api/tiles/:name?lang=de`: Single card by name → `{"status":"success","tile":{...}}` (falls back to another language if requested language is unavailable).
+- `GET /api/tiles/:name?lang=de`: Single card by name → `{"status":"success","tile":{...}}` (supports `format=md` to get `teaser` converted to Markdown; falls back to another language if requested language is unavailable).
 - `GET /api/tiles/:name/versions`: Available language versions for a card → `{"status":"success","name":"...","versions":[TileSummary...]}`.
 - `GET /api/healthz`: Service health check → `{"status":"ok","db":"ok","time":"..."}` (HTTP 503 if database down).
 - `GET /llms.txt`: This documentation file.
@@ -45,7 +45,7 @@ Errors return JSON: `{"status":"error","message":"..."}`. Unknown card returns H
 ### Example Queries
 - Vector Search: [https://leben.8bj.de/api/tiles?q=finance+investments&limit=3&lang=de](https://leben.8bj.de/api/tiles?q=finance+investments&limit=3&lang=de)
 - Similarity: [https://leben.8bj.de/api/tiles?similar=finance&limit=3&lang=de](https://leben.8bj.de/api/tiles?similar=finance&limit=3&lang=de)
-- Full Text in TOON: [https://leben.8bj.de/api/tiles?q=vision&limit=1&detail=full&format=toon](https://leben.8bj.de/api/tiles?q=vision&limit=1&detail=full&format=toon)
+- Full Text in TOON with Markdown: [https://leben.8bj.de/api/tiles?q=vision&limit=1&detail=full&format=toon,md](https://leben.8bj.de/api/tiles?q=vision&limit=1&detail=full&format=toon,md)
 - All Cards (compact): [https://leben.8bj.de/api/tiles?limit=0&detail=min&lang=en](https://leben.8bj.de/api/tiles?limit=0&detail=min&lang=en)
 
 ---

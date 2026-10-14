@@ -57,8 +57,11 @@ func FormatTOON(query, lang, format string, tiles []models.TileDTO) (string, err
 		if format != "min" {
 			sb.WriteString(fmt.Sprintf("summary: %s\n", tile.Summary))
 		}
-		if format == "full" && tile.Content != "" {
-			sb.WriteString(fmt.Sprintf("body:\n%s\n", strings.TrimSpace(tile.Content)))
+		if format == "full" && tile.Teaser != "" {
+			sb.WriteString(fmt.Sprintf("teaser: %s\n", strings.TrimSpace(tile.Teaser)))
+		}
+		if format == "full" && tile.Body != "" {
+			sb.WriteString(fmt.Sprintf("body:\n%s\n", strings.TrimSpace(tile.Body)))
 		}
 		sb.WriteString("\n")
 	}

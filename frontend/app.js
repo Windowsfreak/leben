@@ -496,7 +496,7 @@ function createTileElement(tile, isMini = false) {
     
     const contentWrapper = document.createElement('div');
     contentWrapper.className = 'tile-content';
-    contentWrapper.innerHTML = tile.html_teaser || '';
+    contentWrapper.innerHTML = tile.teaser || '';
     tileDiv.appendChild(contentWrapper);
     
     // Admin editing icons overlay
@@ -742,7 +742,7 @@ function openLightbox(tile, updateHistory = true) {
                     <div class="lightbox-article">
                         <h2>${tile.title}</h2>
                         <div class="article-body">
-                            ${tile.html_teaser || ''}
+                            ${tile.teaser || ''}
                             <p style="color:var(--danger); margin-top: 1rem;"><i class="fa-solid fa-triangle-exclamation"></i> Inhaltsdatei "${tile.content_file}" konnte nicht geladen werden.</p>
                         </div>
                     </div>
@@ -756,7 +756,7 @@ function openLightbox(tile, updateHistory = true) {
             <div class="lightbox-article">
                 <h2>${tile.title}</h2>
                 <div class="article-body">
-                    ${tile.html_teaser || ''}
+                    ${tile.teaser || ''}
                 </div>
             </div>
         `;

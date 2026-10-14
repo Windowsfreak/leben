@@ -164,7 +164,7 @@ Article bodies are stored as HTML partials in `/content/` and referenced by a ti
 - **Res**: `{"status":"success","files":[{"name":string,"size":int64,"mtime":int64}]}` (Lists all HTML articles in `/content/`).
 
 ### `GET /api/admin/content/:file`
-- **Req**: Path parameter (e.g. `finance_de.html`)
+- **Req**: Path parameter (e.g. `finance_de.html`), optional query param `?format=md` to convert HTML to Markdown on retrieval.
 - **Res**: `{"status":"success","content":string,"mtime":int64}` (nonexistent file returns 200 with `content: ""` and `mtime: 0`).
 
 ### `POST /api/admin/content/:file`

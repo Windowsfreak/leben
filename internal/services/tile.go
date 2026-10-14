@@ -1102,8 +1102,8 @@ func RenameContentFile(webDir, oldName, newName string) error {
 }
 
 // ToRichTileDTO transforms a models.Tile into a models.TileDTO according to detail mode,
-// crop limits, admin visibility, and sparse field projection.
-func ToRichTileDTO(t *models.Tile, idx int, detail string, crop int, contentsDir string, qStr, similarName string, isAdmin bool, fieldSet map[string]bool) models.TileDTO {
+// crop limits, admin visibility, sparse field projection, and content format (html vs md).
+func ToRichTileDTO(t *models.Tile, idx int, detail string, crop int, contentsDir string, qStr, similarName string, isAdmin bool, fieldSet map[string]bool, contentFmt string) models.TileDTO {
 	tagsStr := t.Tags
 	dateStr := t.UpdatedAt.Format("2006-01-02")
 
@@ -1175,8 +1175,20 @@ func ToRichTileDTO(t *models.Tile, idx int, detail string, crop int, contentsDir
 		detail = "snippet"
 		summaryText = t.Summary
 		contentFile = t.ContentFile
+		if fieldSet != nil && (fieldSet["teaser"] || fieldSet["html_teaser"]) {
+			teaserText = t.HTMLTeaser
+		}
 		if crop <= 0 {
 			crop = 120
+		}
+	}
+
+	if contentFmt == "md" {
+		if teaserText != "" {
+			teaserText = HTMLToMarkdown(teaserText)
+		}
+		if bodyText != "" && !strings.HasPrefix(bodyText, "Link URL: ") {
+			bodyText = HTMLToMarkdown(bodyText)
 		}
 	}
 
@@ -1194,9 +1206,9 @@ func ToRichTileDTO(t *models.Tile, idx int, detail string, crop int, contentsDir
 		Name:        t.Name,
 		Lang:        t.Language,
 		Title:       t.Title,
-		HTMLTeaser:  teaserText,
+		Teaser:      teaserText,
 		Summary:     summaryText,
-		Content:     bodyText,
+		Body:        bodyText,
 		ContentFile: contentFile,
 		Type:        typeStr,
 		Tags:        tagsStr,
@@ -1231,14 +1243,14 @@ func ApplyFieldMask(dto *models.TileDTO, t *models.Tile, fieldSet map[string]boo
 	if !fieldSet["title"] {
 		dto.Title = ""
 	}
-	if !fieldSet["html_teaser"] && !fieldSet["teaser"] {
-		dto.HTMLTeaser = ""
+	if !fieldSet["teaser"] && !fieldSet["html_teaser"] {
+		dto.Teaser = ""
 	}
 	if !fieldSet["summary"] {
 		dto.Summary = ""
 	}
-	if !fieldSet["content"] && !fieldSet["body"] {
-		dto.Content = ""
+	if !fieldSet["body"] && !fieldSet["content"] {
+		dto.Body = ""
 	}
 	if !fieldSet["content_file"] && !fieldSet["file"] {
 		dto.ContentFile = ""

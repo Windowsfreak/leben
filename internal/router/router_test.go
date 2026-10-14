@@ -301,7 +301,7 @@ func TestFrontendTileSerialization(t *testing.T) {
 		}
 	}
 
-	requiredPublicKeys := []string{"name", "lang", "title", "html_teaser", "accent_color", "type"}
+	requiredPublicKeys := []string{"name", "lang", "title", "teaser", "accent_color", "type"}
 	for _, key := range requiredPublicKeys {
 		if _, exists := publicMap[key]; !exists {
 			t.Errorf("expected required key %q in public TileDTO JSON, but it was missing", key)
@@ -380,7 +380,7 @@ func TestRichTileDTOSerialization(t *testing.T) {
 		Score:       &scoreVal,
 	}
 
-	dto := toRichTileDTO(tile, 1, "summary", 0, t.TempDir(), "answer", "", false, nil)
+	dto := toRichTileDTO(tile, 1, "summary", 0, t.TempDir(), "answer", "", false, nil, "html")
 	data, err := json.Marshal(dto)
 	if err != nil {
 		t.Fatalf("failed to marshal rich TileDTO: %v", err)
@@ -404,20 +404,20 @@ func TestRichTileDTOSerialization(t *testing.T) {
 		t.Errorf("language must not be serialized in TileDTO (use lang)")
 	}
 
-	// Test detail=min: summary and content must be empty
-	minDTO := toRichTileDTO(tile, 1, "min", 0, t.TempDir(), "", "", false, nil)
-	if minDTO.Summary != "" || minDTO.Content != "" || minDTO.HTMLTeaser != "" {
-		t.Errorf("expected empty summary/content/teaser for detail=min, got summary=%q", minDTO.Summary)
+	// Test detail=min: summary, body and teaser must be empty
+	minDTO := toRichTileDTO(tile, 1, "min", 0, t.TempDir(), "", "", false, nil, "html")
+	if minDTO.Summary != "" || minDTO.Body != "" || minDTO.Teaser != "" {
+		t.Errorf("expected empty summary/body/teaser for detail=min, got summary=%q", minDTO.Summary)
 	}
 
 	// Test detail=snippet: default crop is 120
-	snipDTO := toRichTileDTO(tile, 1, "snippet", 5, t.TempDir(), "", "", false, nil)
+	snipDTO := toRichTileDTO(tile, 1, "snippet", 5, t.TempDir(), "", "", false, nil, "html")
 	if snipDTO.Summary != "42 is..." {
 		t.Errorf("expected cropped summary '42 is...', got %q", snipDTO.Summary)
 	}
 
 	// Test field masking: only requested fields
-	fieldsDTO := toRichTileDTO(tile, 1, "summary", 0, t.TempDir(), "", "", false, map[string]bool{"name": true, "title": true})
+	fieldsDTO := toRichTileDTO(tile, 1, "summary", 0, t.TempDir(), "", "", false, map[string]bool{"name": true, "title": true}, "html")
 	fData, _ := json.Marshal(fieldsDTO)
 	var fMap map[string]any
 	_ = json.Unmarshal(fData, &fMap)
@@ -426,6 +426,12 @@ func TestRichTileDTOSerialization(t *testing.T) {
 	}
 	if fMap["name"] != "deep-thought" || fMap["title"] != "Deep Thought" {
 		t.Errorf("expected name and title, got: %v", fMap)
+	}
+
+	// Test contentFmt=md converts teaser and body to Markdown
+	mdDTO := toRichTileDTO(tile, 1, "full", 0, t.TempDir(), "", "", false, nil, "md")
+	if mdDTO.Teaser != "Teaser" {
+		t.Errorf("expected markdown converted teaser 'Teaser', got %q", mdDTO.Teaser)
 	}
 }
 
